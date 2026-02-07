@@ -2,39 +2,26 @@ import { create } from 'zustand';
 import * as memory from '../services/memory';
 
 interface MemoryState {
-  soul: string;
   userMemory: string;
   daily: string;
-  wallet: string;
   isLoaded: boolean;
   loadAll: () => Promise<void>;
-  updateSoul: (content: string) => Promise<void>;
   updateMemory: (content: string) => Promise<void>;
   appendDaily: (entry: string) => Promise<void>;
-  updateWallet: (content: string) => Promise<void>;
 }
 
 export const useMemoryStore = create<MemoryState>((set) => ({
-  soul: '',
   userMemory: '',
   daily: '',
-  wallet: '',
   isLoaded: false,
 
   loadAll: async () => {
     await memory.initializeMemory();
-    const [soul, userMemory, daily, wallet] = await Promise.all([
-      memory.readSoul(),
+    const [userMemory, daily] = await Promise.all([
       memory.readMemory(),
       memory.readDaily(),
-      memory.readWallet(),
     ]);
-    set({ soul, userMemory, daily, wallet, isLoaded: true });
-  },
-
-  updateSoul: async (content: string) => {
-    await memory.updateSoul(content);
-    set({ soul: content });
+    set({ userMemory, daily, isLoaded: true });
   },
 
   updateMemory: async (content: string) => {
@@ -46,10 +33,5 @@ export const useMemoryStore = create<MemoryState>((set) => ({
     await memory.appendDaily(entry);
     const daily = await memory.readDaily();
     set({ daily });
-  },
-
-  updateWallet: async (content: string) => {
-    await memory.updateWallet(content);
-    set({ wallet: content });
   },
 }));

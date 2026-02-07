@@ -19,6 +19,13 @@ import {
   getKeypair,
 } from '../services/embeddedWallet';
 import { isPrivyReady, privySignAndSendTransaction } from '../services/privyBridge';
+import {
+  fetchOnChainHoldings,
+  buildWalletContext,
+  clearPortfolioCache,
+  type TokenBalance,
+  type PortfolioData,
+} from '../services/onChainPortfolio';
 
 // Solana RPC endpoints
 export const RPC_ENDPOINTS = {
@@ -29,7 +36,7 @@ export const RPC_ENDPOINTS = {
 // Current cluster
 export const CLUSTER = 'devnet';
 
-function getConnection(): Connection {
+export function getConnection(): Connection {
   return new Connection(
     RPC_ENDPOINTS[CLUSTER as keyof typeof RPC_ENDPOINTS],
     'confirmed'
@@ -50,6 +57,12 @@ interface WalletState {
   hasMnemonic: boolean;
   walletType: WalletType;
 
+  // On-chain portfolio
+  holdings: TokenBalance[];
+  totalUsd: number;
+  portfolioData: PortfolioData | null;
+  holdingsLoading: boolean;
+
   // Actions
   loadWallet: () => Promise<void>;
   createWallet: () => Promise<string>; // returns mnemonic
@@ -58,6 +71,7 @@ interface WalletState {
   exportMnemonic: () => Promise<string | null>;
   deleteWallet: () => Promise<void>;
   refreshBalance: () => Promise<void>;
+  refreshHoldings: () => Promise<void>;
 
   // Privy actions
   setPrivyWallet: (address: string) => Promise<void>;
@@ -78,6 +92,10 @@ export const useWalletStore = create<WalletState>((set, get) => ({
   balanceLoading: false,
   hasMnemonic: false,
   walletType: 'embedded',
+  holdings: [],
+  totalUsd: 0,
+  portfolioData: null,
+  holdingsLoading: false,
 
   /**
    * Load wallet from SecureStore (embedded) or check for Privy walletType.
@@ -210,6 +228,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       await clearWallet();
     }
     await AsyncStorage.removeItem(WALLET_TYPE_KEY);
+    clearPortfolioCache();
     set({
       isInitialized: false,
       isConnected: false,
@@ -217,6 +236,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       balance: 0,
       hasMnemonic: false,
       walletType: 'embedded',
+      holdings: [],
+      totalUsd: 0,
+      portfolioData: null,
     });
     console.log('[Wallet] Deleted');
   },
@@ -243,6 +265,7 @@ export const useWalletStore = create<WalletState>((set, get) => ({
    */
   disconnectPrivy: async () => {
     await AsyncStorage.removeItem(WALLET_TYPE_KEY);
+    clearPortfolioCache();
     set({
       walletType: 'embedded',
       isInitialized: false,
@@ -250,6 +273,9 @@ export const useWalletStore = create<WalletState>((set, get) => ({
       address: null,
       balance: 0,
       hasMnemonic: false,
+      holdings: [],
+      totalUsd: 0,
+      portfolioData: null,
     });
     console.log('[Wallet] Privy disconnected');
   },
@@ -273,6 +299,32 @@ export const useWalletStore = create<WalletState>((set, get) => ({
     } catch (error: any) {
       console.error('[Wallet] Balance fetch error:', error.message);
       set({ balanceLoading: false });
+    }
+  },
+
+  /**
+   * Refresh full on-chain holdings (SOL + SPL tokens with prices).
+   */
+  refreshHoldings: async () => {
+    const { address } = get();
+    if (!address) return;
+
+    set({ holdingsLoading: true });
+    try {
+      const connection = getConnection();
+      const data = await fetchOnChainHoldings(address, connection);
+
+      set({
+        balance: data.sol,
+        holdings: data.tokens,
+        totalUsd: data.totalUsd,
+        portfolioData: data,
+        holdingsLoading: false,
+      });
+      console.log(`[Wallet] Holdings: ${data.tokens.length} tokens, $${data.totalUsd.toFixed(2)} total`);
+    } catch (error: any) {
+      console.error('[Wallet] Holdings fetch error:', error.message);
+      set({ holdingsLoading: false });
     }
   },
 

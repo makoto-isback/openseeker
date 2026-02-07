@@ -27,11 +27,14 @@ export function PostButton({ agentId, parkContext, promptType, label, onPosted }
 
     setLoading(true);
     try {
-      const { soul, userMemory, wallet } = useMemoryStore.getState();
+      const { userMemory } = useMemoryStore.getState();
+      const { buildWalletContext } = await import('../../services/onChainPortfolio');
+      const walletState = (await import('../../stores/walletStore')).useWalletStore.getState();
+      const walletContext = walletState.portfolioData ? buildWalletContext(walletState.portfolioData) : '';
       const result = await generateParkPost({
-        soul,
+        soul: '',
         memory: userMemory,
-        wallet,
+        wallet: walletContext,
         park_context: parkContext,
         prompt_type: promptType,
       });

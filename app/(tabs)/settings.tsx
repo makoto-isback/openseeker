@@ -45,27 +45,16 @@ import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 const monoFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
 
 export default function SettingsScreen() {
-  const soul = useMemoryStore((s) => s.soul);
-  const updateSoul = useMemoryStore((s) => s.updateSoul);
   const userMemory = useMemoryStore((s) => s.userMemory);
   const updateMemory = useMemoryStore((s) => s.updateMemory);
-  const wallet = useMemoryStore((s) => s.wallet);
-  const updateWallet = useMemoryStore((s) => s.updateWallet);
   const daily = useMemoryStore((s) => s.daily);
-
-  const [draft, setDraft] = useState('');
-  const [hasChanges, setHasChanges] = useState(false);
 
   // Memory editors
   const [memoryDraft, setMemoryDraft] = useState('');
   const [memoryHasChanges, setMemoryHasChanges] = useState(false);
-  const [walletDraft, setWalletDraft] = useState('');
-  const [walletHasChanges, setWalletHasChanges] = useState(false);
 
   // Collapsible sections
-  const [soulExpanded, setSoulExpanded] = useState(true);
   const [memoryExpanded, setMemoryExpanded] = useState(false);
-  const [walletExpanded, setWalletExpanded] = useState(false);
   const [dailyExpanded, setDailyExpanded] = useState(false);
 
   // Alerts
@@ -106,9 +95,7 @@ export default function SettingsScreen() {
   // Debug modal
   const [debugVisible, setDebugVisible] = useState(false);
   const [debugData, setDebugData] = useState<{
-    soul: string;
     memory: string;
-    wallet: string;
     daily: string;
     context: string;
     messageCount: number;
@@ -166,19 +153,9 @@ export default function SettingsScreen() {
   const [limitDraft, setLimitDraft] = useState(dailySpendLimit.toString());
 
   useEffect(() => {
-    setDraft(soul);
-    setHasChanges(false);
-  }, [soul]);
-
-  useEffect(() => {
     setMemoryDraft(userMemory);
     setMemoryHasChanges(false);
   }, [userMemory]);
-
-  useEffect(() => {
-    setWalletDraft(wallet);
-    setWalletHasChanges(false);
-  }, [wallet]);
 
   useEffect(() => {
     loadAll();
@@ -213,17 +190,6 @@ export default function SettingsScreen() {
     setSolPrice(price);
   };
 
-  const handleSoulChange = (text: string) => {
-    setDraft(text);
-    setHasChanges(text !== soul);
-  };
-
-  const handleSave = async () => {
-    await updateSoul(draft);
-    setHasChanges(false);
-    Alert.alert('Saved', 'SOUL.md updated successfully.');
-  };
-
   const handleMemoryChange = (text: string) => {
     setMemoryDraft(text);
     setMemoryHasChanges(text !== userMemory);
@@ -233,17 +199,6 @@ export default function SettingsScreen() {
     await updateMemory(memoryDraft);
     setMemoryHasChanges(false);
     Alert.alert('Saved', 'MEMORY.md updated successfully.');
-  };
-
-  const handleWalletChange = (text: string) => {
-    setWalletDraft(text);
-    setWalletHasChanges(text !== wallet);
-  };
-
-  const handleSaveWallet = async () => {
-    await updateWallet(walletDraft);
-    setWalletHasChanges(false);
-    Alert.alert('Saved', 'WALLET.md updated successfully.');
   };
 
   const handleAddAlert = async () => {
@@ -1066,38 +1021,6 @@ export default function SettingsScreen() {
       {/* Memory */}
       <Text style={[styles.sectionTitle, { marginTop: spacing.xxl }]}>Memory</Text>
 
-      {/* SOUL.md Editor */}
-      <TouchableOpacity style={styles.collapsibleHeader} onPress={() => setSoulExpanded(!soulExpanded)}>
-        <Text style={styles.toggleIndicator}>{soulExpanded ? '[v]' : '[>]'}</Text>
-        <Text style={styles.sectionTitle}>Agent Personality (SOUL.md)</Text>
-      </TouchableOpacity>
-      {soulExpanded && (
-        <>
-          <Text style={styles.sectionDescription}>
-            Edit your agent's personality, behavior rules, and response style.
-          </Text>
-          <TextInput
-            style={styles.editor}
-            value={draft}
-            onChangeText={handleSoulChange}
-            multiline
-            textAlignVertical="top"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity
-            style={[styles.saveButton, !hasChanges && styles.buttonDisabled]}
-            onPress={handleSave}
-            disabled={!hasChanges}
-          >
-            <Text style={styles.buttonText}>
-              {hasChanges ? 'Save Changes' : 'No Changes'}
-            </Text>
-          </TouchableOpacity>
-        </>
-      )}
-
       {/* MEMORY.md Editor */}
       <TouchableOpacity style={styles.collapsibleHeader} onPress={() => setMemoryExpanded(!memoryExpanded)}>
         <Text style={styles.toggleIndicator}>{memoryExpanded ? '[v]' : '[>]'}</Text>
@@ -1125,38 +1048,6 @@ export default function SettingsScreen() {
           >
             <Text style={styles.buttonText}>
               {memoryHasChanges ? 'Save Changes' : 'No Changes'}
-            </Text>
-          </TouchableOpacity>
-        </>
-      )}
-
-      {/* WALLET.md Editor */}
-      <TouchableOpacity style={styles.collapsibleHeader} onPress={() => setWalletExpanded(!walletExpanded)}>
-        <Text style={styles.toggleIndicator}>{walletExpanded ? '[v]' : '[>]'}</Text>
-        <Text style={styles.sectionTitle}>Wallet (WALLET.md)</Text>
-      </TouchableOpacity>
-      {walletExpanded && (
-        <>
-          <Text style={styles.sectionDescription}>
-            Your token holdings and trade history.
-          </Text>
-          <TextInput
-            style={styles.editor}
-            value={walletDraft}
-            onChangeText={handleWalletChange}
-            multiline
-            textAlignVertical="top"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity
-            style={[styles.saveButton, !walletHasChanges && styles.buttonDisabled]}
-            onPress={handleSaveWallet}
-            disabled={!walletHasChanges}
-          >
-            <Text style={styles.buttonText}>
-              {walletHasChanges ? 'Save Changes' : 'No Changes'}
             </Text>
           </TouchableOpacity>
         </>
@@ -1300,12 +1191,6 @@ export default function SettingsScreen() {
                   <View style={styles.debugBox}>
                     <Text style={styles.debugText}>{debugData.memory.slice(0, 2000)}</Text>
                     {debugData.memory.length > 2000 && <Text style={styles.debugTruncated}>... (truncated)</Text>}
-                  </View>
-
-                  <Text style={styles.debugLabel}>WALLET.md ({debugData.wallet.length} chars)</Text>
-                  <View style={styles.debugBox}>
-                    <Text style={styles.debugText}>{debugData.wallet.slice(0, 1000)}</Text>
-                    {debugData.wallet.length > 1000 && <Text style={styles.debugTruncated}>... (truncated)</Text>}
                   </View>
 
                   <Text style={styles.debugLabel}>DAILY.md ({debugData.daily.length} chars)</Text>

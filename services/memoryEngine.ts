@@ -112,15 +112,6 @@ async function extractFacts(userMessage: string, aiResponse: string): Promise<vo
     if (mentionedTokens.length > 0) {
       updates.push(`[${timestamp}] Trade mention: "${truncate(userMessage, 100)}" (tokens: ${mentionedTokens.join(', ')})`);
       console.log('[MEMORY_ENGINE] Found trade mention:', mentionedTokens);
-
-      // Append to wallet notes
-      const wallet = await memory.readWallet();
-      const walletEntry = `\n- [${timestamp}] ${truncate(userMessage, 80)}`;
-      if (!wallet.includes('## Trade Notes')) {
-        await memory.updateWallet(wallet + '\n## Trade Notes' + walletEntry);
-      } else {
-        await memory.updateWallet(wallet + walletEntry);
-      }
     }
   }
 

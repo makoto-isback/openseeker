@@ -12,7 +12,7 @@ import { useWalletStore, signAndSendTransaction } from '../stores/walletStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { paidFetch } from './x402';
 import { addXP } from './gamification';
-import { updateHolding, recordTrade } from './walletManager';
+import { clearPortfolioCache } from './onChainPortfolio';
 
 export interface SwapQuote {
   from: { symbol: string; amount: number };
@@ -140,21 +140,13 @@ export async function executeSwap(data: {
 
     console.log(`[SWAP] Transaction confirmed: ${txSignature}`);
 
-    // Step 4: Award XP and update wallet
+    // Step 4: Award XP and refresh on-chain holdings
     const xpAmount = data.from.amount >= 100 ? 10 : 5;
     addXP(xpAmount).catch(console.error);
 
-    // Update WALLET.md
-    try {
-      const toPrice = data.from.amount / data.to.amount;
-      await recordTrade('SWAP', data.to.symbol, data.to.amount, toPrice, txSignature);
-      await updateHolding(data.to.symbol, data.to.amount, toPrice);
-    } catch (err) {
-      console.error('[SWAP] Failed to update WALLET.md:', err);
-    }
-
-    // Refresh wallet balance
-    useWalletStore.getState().refreshBalance();
+    // Refresh on-chain holdings
+    clearPortfolioCache();
+    useWalletStore.getState().refreshHoldings();
 
     return {
       success: true,
@@ -195,15 +187,6 @@ async function executeSimulatedSwap(data: {
   // Award XP
   const xpAmount = data.from.amount >= 100 ? 10 : 5;
   addXP(xpAmount).catch(console.error);
-
-  // Update WALLET.md
-  try {
-    const toPrice = data.from.amount / data.to.amount;
-    await recordTrade('SWAP', data.to.symbol, data.to.amount, toPrice, sig);
-    await updateHolding(data.to.symbol, data.to.amount, toPrice);
-  } catch (err) {
-    console.error('[SWAP] Failed to update WALLET.md:', err);
-  }
 
   return {
     success: true,

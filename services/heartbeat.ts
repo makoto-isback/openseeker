@@ -2,13 +2,14 @@ import * as BackgroundFetch from 'expo-background-fetch';
 import * as TaskManager from 'expo-task-manager';
 import * as memory from './memory';
 import * as api from './api';
-import { parseWalletMd, parseWatchedTokens } from './walletParser';
 import { getAlerts, markAlertTriggered } from './alerts';
 import { sendLocalNotification } from './notifications';
 import { checkDCAExecutions, markDCAExecuted } from './dca';
 import { getActiveOrders, checkOrders } from './orders';
 import { ensureWatching } from './priceWatcher';
 import { getRecentMessages } from '../supabase/agentPark';
+import { useWalletStore } from '../stores/walletStore';
+import { buildWalletContext } from './onChainPortfolio';
 
 const HEARTBEAT_TASK = 'OPENSEEKER_HEARTBEAT';
 
@@ -20,14 +21,24 @@ let lastHeartbeat: number = 0;
  */
 export async function executeHeartbeat(): Promise<void> {
   try {
-    // 1. Read current state from AsyncStorage
-    const soul = await memory.readSoul();
+    // 1. Read current state
     const userMemory = await memory.readMemory();
-    const wallet = await memory.readWallet();
+    const { holdings, portfolioData } = useWalletStore.getState();
 
-    // 2. Parse structured data
-    const watchedTokens = parseWatchedTokens(userMemory);
-    const portfolioTokens = parseWalletMd(wallet);
+    // Build wallet context from on-chain holdings
+    const walletContext = portfolioData ? buildWalletContext(portfolioData) : '';
+
+    // Build portfolio tokens from on-chain holdings
+    const portfolioTokens = portfolioData
+      ? [
+          ...(portfolioData.sol > 0 ? [{ symbol: 'SOL', amount: portfolioData.sol, avg_entry: 0 }] : []),
+          ...portfolioData.tokens.map((t) => ({ symbol: t.symbol, amount: t.amount, avg_entry: 0 })),
+        ]
+      : [];
+
+    // 2. Parse watched tokens from memory
+    const KNOWN_TOKENS = ['SOL', 'BTC', 'ETH', 'WIF', 'BONK', 'JUP', 'PYTH', 'RAY', 'ORCA', 'MSOL', 'JITO', 'HNT', 'RNDR'];
+    const watchedTokens = KNOWN_TOKENS.filter((token) => new RegExp(`\\b${token}\\b`).test(userMemory.toUpperCase()));
     const storedAlerts = await getAlerts();
 
     const alertsPayload = storedAlerts
@@ -40,16 +51,12 @@ export async function executeHeartbeat(): Promise<void> {
 
     // 3. Call server heartbeat
     const result = await api.heartbeat({
-      soul,
+      soul: '',
       memory: userMemory,
-      wallet,
+      wallet: walletContext,
       watched_tokens: watchedTokens,
       alerts: alertsPayload,
-      portfolio_tokens: portfolioTokens.map((h) => ({
-        symbol: h.symbol,
-        amount: h.amount,
-        avg_entry: h.avgEntry,
-      })),
+      portfolio_tokens: portfolioTokens,
     });
 
     // 4. Handle triggered alerts

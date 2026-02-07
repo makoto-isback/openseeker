@@ -8,37 +8,23 @@ import {
   RefreshControl,
   ActivityIndicator,
   Platform,
-
+  Clipboard,
+  Alert,
 } from 'react-native';
-import { useMemoryStore } from '../../stores/memoryStore';
 import { useWalletStore } from '../../stores/walletStore';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { parseWalletMd, type TokenHolding } from '../../services/walletParser';
 import { getDCAConfigs, type DCAConfig } from '../../services/dca';
 import { getAlerts, type PriceAlert } from '../../services/alerts';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 
-function timeoutSignal(ms: number): AbortSignal {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), ms);
-  return controller.signal;
-}
-
-interface EnrichedHolding extends TokenHolding {
-  currentPrice: number;
-  currentValue: number;
-  change24h: number;
-  pnlPercent: number;
-}
-
 export default function PortfolioScreen() {
-  const wallet = useMemoryStore((s) => s.wallet);
-  const serverUrl = useSettingsStore((s) => s.serverUrl);
-  const walletAddress = useWalletStore((s) => s.address);
+  const address = useWalletStore((s) => s.address);
+  const balance = useWalletStore((s) => s.balance);
+  const holdings = useWalletStore((s) => s.holdings);
+  const totalUsd = useWalletStore((s) => s.totalUsd);
+  const portfolioData = useWalletStore((s) => s.portfolioData);
+  const holdingsLoading = useWalletStore((s) => s.holdingsLoading);
+  const refreshHoldings = useWalletStore((s) => s.refreshHoldings);
 
-  const [holdings, setHoldings] = useState<EnrichedHolding[]>([]);
-  const [totalValue, setTotalValue] = useState(0);
-  const [totalChange, setTotalChange] = useState(0);
   const [dcaConfigs, setDcaConfigs] = useState<DCAConfig[]>([]);
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -47,55 +33,8 @@ export default function PortfolioScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const parsed = parseWalletMd(wallet);
-      if (parsed.length === 0) {
-        setHoldings([]);
-        setTotalValue(0);
-        setTotalChange(0);
-        setLoading(false);
-        return;
-      }
+      await refreshHoldings();
 
-      // Fetch live prices
-      const enriched: EnrichedHolding[] = [];
-      let total = 0;
-      let totalCost = 0;
-
-      for (const h of parsed) {
-        let currentPrice = h.avgEntry;
-        let change24h = 0;
-        try {
-          const res = await fetch(`${serverUrl}/price/${h.symbol}?detailed=true`, {
-            signal: timeoutSignal(5000),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            currentPrice = data.price || h.avgEntry;
-            change24h = data.change_24h || 0;
-          }
-        } catch {}
-
-        const currentValue = h.amount * currentPrice;
-        const costBasis = h.amount * h.avgEntry;
-        const pnlPercent = h.avgEntry > 0 ? ((currentPrice - h.avgEntry) / h.avgEntry) * 100 : 0;
-
-        total += currentValue;
-        totalCost += costBasis;
-
-        enriched.push({
-          ...h,
-          currentPrice,
-          currentValue,
-          change24h,
-          pnlPercent,
-        });
-      }
-
-      setHoldings(enriched);
-      setTotalValue(total);
-      setTotalChange(totalCost > 0 ? ((total - totalCost) / totalCost) * 100 : 0);
-
-      // Load automations
       const configs = await getDCAConfigs();
       setDcaConfigs(configs.filter((c) => c.active));
 
@@ -106,7 +45,7 @@ export default function PortfolioScreen() {
     } finally {
       setLoading(false);
     }
-  }, [wallet, serverUrl]);
+  }, [refreshHoldings]);
 
   useEffect(() => {
     loadData();
@@ -118,7 +57,7 @@ export default function PortfolioScreen() {
     setRefreshing(false);
   }, [loadData]);
 
-  if (loading) {
+  if (loading && !portfolioData) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={colors.accent} />
@@ -126,7 +65,8 @@ export default function PortfolioScreen() {
     );
   }
 
-  const isPositive = totalChange >= 0;
+  const solData = portfolioData;
+  const hasHoldings = (solData && solData.sol > 0) || holdings.length > 0;
 
   return (
     <ScrollView
@@ -137,12 +77,8 @@ export default function PortfolioScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerLabel}>Total Portfolio Value</Text>
-        <Text style={styles.totalValue}>${formatNum(totalValue)}</Text>
-        {totalValue > 0 && (
-          <Text style={[styles.totalChange, isPositive ? styles.green : styles.red]}>
-            {isPositive ? '+' : ''}{totalChange.toFixed(2)}% all time
-          </Text>
-        )}
+        <Text style={styles.totalValue}>${formatNum(totalUsd)}</Text>
+        {holdingsLoading && <ActivityIndicator size="small" color={colors.accent} style={{ marginTop: 4 }} />}
       </View>
 
       {/* Quick Actions */}
@@ -154,40 +90,85 @@ export default function PortfolioScreen() {
 
       {/* Holdings */}
       <Text style={styles.sectionTitle}>Holdings</Text>
-      {holdings.length === 0 ? (
-        <Text style={styles.emptyText}>No holdings in WALLET.md. Edit in Settings to add tokens.</Text>
+      {!hasHoldings ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No tokens yet. Send SOL to get started.</Text>
+          {address && (
+            <TouchableOpacity
+              style={styles.copyAddressButton}
+              onPress={() => {
+                Clipboard.setString(address);
+                Alert.alert('Copied', 'Wallet address copied to clipboard');
+              }}
+            >
+              <Text style={styles.copyAddressText}>{address}</Text>
+              <Text style={styles.copyHint}>[tap to copy]</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       ) : (
-        holdings.map((h, i) => (
-          <TouchableOpacity
-            key={i}
-            style={styles.holdingCard}
-            onPress={() => setExpandedIdx(expandedIdx === i ? null : i)}
-          >
-            <View style={styles.holdingHeader}>
-              <View>
-                <Text style={styles.holdingSymbol}>{h.symbol}</Text>
-                <Text style={styles.holdingMeta}>{h.amount} tokens</Text>
+        <>
+          {/* SOL holding */}
+          {solData && solData.sol > 0 && (
+            <TouchableOpacity
+              style={styles.holdingCard}
+              onPress={() => setExpandedIdx(expandedIdx === -1 ? null : -1)}
+            >
+              <View style={styles.holdingHeader}>
+                <View>
+                  <Text style={styles.holdingSymbol}>SOL</Text>
+                  <Text style={styles.holdingMeta}>{solData.sol.toFixed(4)} tokens</Text>
+                </View>
+                <View style={styles.holdingRight}>
+                  <Text style={styles.holdingValue}>${formatNum(solData.solUsdValue)}</Text>
+                  <Text style={[styles.holdingChange, solData.solChange24h >= 0 ? styles.green : styles.red]}>
+                    {solData.solChange24h >= 0 ? '+' : ''}{solData.solChange24h.toFixed(1)}% 24h
+                  </Text>
+                </View>
               </View>
-              <View style={styles.holdingRight}>
-                <Text style={styles.holdingValue}>${formatNum(h.currentValue)}</Text>
-                <Text style={[styles.holdingChange, h.pnlPercent >= 0 ? styles.green : styles.red]}>
-                  {h.pnlPercent >= 0 ? '+' : ''}{h.pnlPercent.toFixed(1)}%
-                </Text>
+              {expandedIdx === -1 && (
+                <View style={styles.expandedRow}>
+                  <Text style={styles.expandedText}>Price: ${formatNum(solData.solUsdPrice)}</Text>
+                  <Text style={styles.expandedText}>24h Change: {solData.solChange24h >= 0 ? '+' : ''}{solData.solChange24h.toFixed(2)}%</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* SPL token holdings */}
+          {holdings.map((h, i) => (
+            <TouchableOpacity
+              key={h.mint}
+              style={styles.holdingCard}
+              onPress={() => setExpandedIdx(expandedIdx === i ? null : i)}
+            >
+              <View style={styles.holdingHeader}>
+                <View>
+                  <Text style={styles.holdingSymbol}>{h.symbol}</Text>
+                  <Text style={styles.holdingMeta}>{formatTokenAmount(h.amount)} tokens</Text>
+                </View>
+                <View style={styles.holdingRight}>
+                  <Text style={styles.holdingValue}>
+                    {h.usdValue > 0 ? `$${formatNum(h.usdValue)}` : '--'}
+                  </Text>
+                  {h.change24h !== 0 && (
+                    <Text style={[styles.holdingChange, h.change24h >= 0 ? styles.green : styles.red]}>
+                      {h.change24h >= 0 ? '+' : ''}{h.change24h.toFixed(1)}% 24h
+                    </Text>
+                  )}
+                </View>
               </View>
-            </View>
-            {expandedIdx === i && (
-              <View style={styles.expandedRow}>
-                <Text style={styles.expandedText}>Price: ${formatNum(h.currentPrice)}</Text>
-                <Text style={styles.expandedText}>Avg Entry: ${formatNum(h.avgEntry)}</Text>
-                <Text style={styles.expandedText}>Invested: ${formatNum(h.amount * h.avgEntry)}</Text>
-                <Text style={[styles.expandedText, h.pnlPercent >= 0 ? styles.green : styles.red]}>
-                  P/L: ${formatNum(h.currentValue - h.amount * h.avgEntry)}
-                </Text>
-                <Text style={styles.expandedMeta}>24h: {h.change24h >= 0 ? '+' : ''}{h.change24h.toFixed(2)}%</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        ))
+              {expandedIdx === i && (
+                <View style={styles.expandedRow}>
+                  {h.usdPrice > 0 && (
+                    <Text style={styles.expandedText}>Price: ${formatNum(h.usdPrice)}</Text>
+                  )}
+                  <Text style={styles.expandedMeta}>Mint: {h.mint.slice(0, 12)}...{h.mint.slice(-8)}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </>
       )}
 
       {/* Active Automations */}
@@ -217,9 +198,9 @@ export default function PortfolioScreen() {
         </>
       )}
 
-      {walletAddress && (
+      {address && (
         <Text style={[styles.walletAddress, { marginTop: spacing.xl }]}>
-          {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+          {address.slice(0, 6)}...{address.slice(-4)}
         </Text>
       )}
     </ScrollView>
@@ -230,6 +211,13 @@ function formatNum(n: number): string {
   if (n == null || isNaN(n)) return '0.00';
   if (n >= 1) return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+}
+
+function formatTokenAmount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+  if (n >= 1) return n.toFixed(2);
+  return n.toFixed(6);
 }
 
 const monoFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
@@ -261,11 +249,6 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '700',
   },
-  totalChange: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-    marginTop: spacing.xs,
-  },
   green: {
     color: colors.green,
   },
@@ -294,11 +277,33 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: spacing.md,
   },
+  emptyContainer: {
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
   emptyText: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
     textAlign: 'center',
-    padding: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  copyAddressButton: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  copyAddressText: {
+    color: colors.teal,
+    fontSize: fontSize.xs,
+    fontFamily: monoFont,
+  },
+  copyHint: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
+    marginTop: 4,
   },
   holdingCard: {
     backgroundColor: colors.card,

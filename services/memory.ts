@@ -1,39 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DEFAULT_SOUL, DEFAULT_MEMORY, DEFAULT_WALLET } from '../constants/defaults';
+import { DEFAULT_MEMORY } from '../constants/defaults';
 
 // AsyncStorage key constants
 const KEYS = {
-  SOUL: '@openseeker/soul',
   MEMORY: '@openseeker/memory',
   DAILY: '@openseeker/daily',
-  WALLET: '@openseeker/wallet',
   CONTEXT: '@openseeker/context',
   MESSAGES: '@openseeker/messages',
   MESSAGE_COUNT: '@openseeker/message_count',
   LAST_DAILY_DATE: '@openseeker/last_daily_date',
 } as const;
-
-// --- SOUL ---
-
-export async function readSoul(): Promise<string> {
-  try {
-    const value = await AsyncStorage.getItem(KEYS.SOUL);
-    return value ?? DEFAULT_SOUL;
-  } catch (error) {
-    console.error('[MEMORY] Failed to read SOUL:', error);
-    return DEFAULT_SOUL;
-  }
-}
-
-export async function updateSoul(content: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(KEYS.SOUL, content);
-    console.log('[MEMORY] SOUL.md updated successfully');
-  } catch (error) {
-    console.error('[MEMORY] Failed to update SOUL:', error);
-    throw error;
-  }
-}
 
 // --- MEMORY ---
 
@@ -109,28 +85,6 @@ export async function appendDaily(entry: string): Promise<void> {
   }
 }
 
-// --- WALLET ---
-
-export async function readWallet(): Promise<string> {
-  try {
-    const value = await AsyncStorage.getItem(KEYS.WALLET);
-    return value ?? DEFAULT_WALLET;
-  } catch (error) {
-    console.error('[MEMORY] Failed to read WALLET:', error);
-    return DEFAULT_WALLET;
-  }
-}
-
-export async function updateWallet(content: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(KEYS.WALLET, content);
-    console.log('[WALLET] WALLET.md updated successfully, length:', content.length);
-  } catch (error) {
-    console.error('[MEMORY] Failed to update WALLET:', error);
-    throw error;
-  }
-}
-
 // --- CONTEXT ---
 
 export async function getContext(): Promise<string> {
@@ -185,28 +139,22 @@ export async function incrementMessageCount(): Promise<number> {
 // --- RAW DEBUG ACCESS ---
 
 export async function getRawMemoryDebug(): Promise<{
-  soul: string;
   memory: string;
-  wallet: string;
   daily: string;
   context: string;
   messageCount: number;
   lastDailyDate: string;
 }> {
   try {
-    const [soul, memory, wallet, daily, context, messageCount, lastDailyDate] = await Promise.all([
-      AsyncStorage.getItem(KEYS.SOUL),
+    const [memory, daily, context, messageCount, lastDailyDate] = await Promise.all([
       AsyncStorage.getItem(KEYS.MEMORY),
-      AsyncStorage.getItem(KEYS.WALLET),
       AsyncStorage.getItem(KEYS.DAILY),
       AsyncStorage.getItem(KEYS.CONTEXT),
       AsyncStorage.getItem(KEYS.MESSAGE_COUNT),
       AsyncStorage.getItem(KEYS.LAST_DAILY_DATE),
     ]);
     return {
-      soul: soul ?? '(not set)',
       memory: memory ?? '(not set)',
-      wallet: wallet ?? '(not set)',
       daily: daily ?? '(not set)',
       context: context ?? '(not set)',
       messageCount: messageCount ? parseInt(messageCount, 10) : 0,
@@ -215,9 +163,7 @@ export async function getRawMemoryDebug(): Promise<{
   } catch (error) {
     console.error('[MEMORY] Failed to get raw debug:', error);
     return {
-      soul: '(error)',
       memory: '(error)',
-      wallet: '(error)',
       daily: '(error)',
       context: '(error)',
       messageCount: 0,
@@ -233,7 +179,6 @@ export async function testMemorySystems(): Promise<{
   results: {
     daily: boolean;
     memory: boolean;
-    wallet: boolean;
     context: boolean;
     messageCount: boolean;
   };
@@ -243,7 +188,6 @@ export async function testMemorySystems(): Promise<{
   const results = {
     daily: false,
     memory: false,
-    wallet: false,
     context: false,
     messageCount: false,
   };
@@ -269,18 +213,6 @@ export async function testMemorySystems(): Promise<{
     if (!results.memory) errors.push('MEMORY: Update not persisted');
   } catch (e: any) {
     errors.push(`MEMORY: ${e.message}`);
-  }
-
-  // Test WALLET.md
-  try {
-    const before = await readWallet();
-    const testEntry = `\n- [TEST] TESTTOKEN: 1 @ $1.00`;
-    await updateWallet(before + testEntry);
-    const after = await readWallet();
-    results.wallet = after.includes('TESTTOKEN');
-    if (!results.wallet) errors.push('WALLET: Update not persisted');
-  } catch (e: any) {
-    errors.push(`WALLET: ${e.message}`);
   }
 
   // Test CONTEXT.md
@@ -351,22 +283,10 @@ export async function saveMessages(messages: Message[]): Promise<void> {
 
 export async function initializeMemory(): Promise<void> {
   try {
-    const soul = await AsyncStorage.getItem(KEYS.SOUL);
-    if (soul === null) {
-      await AsyncStorage.setItem(KEYS.SOUL, DEFAULT_SOUL);
-      console.log('[MEMORY] Initialized SOUL.md with defaults');
-    }
-
     const memory = await AsyncStorage.getItem(KEYS.MEMORY);
     if (memory === null) {
       await AsyncStorage.setItem(KEYS.MEMORY, DEFAULT_MEMORY);
       console.log('[MEMORY] Initialized MEMORY.md with defaults');
-    }
-
-    const wallet = await AsyncStorage.getItem(KEYS.WALLET);
-    if (wallet === null) {
-      await AsyncStorage.setItem(KEYS.WALLET, DEFAULT_WALLET);
-      console.log('[MEMORY] Initialized WALLET.md with defaults');
     }
 
     // Initialize daily date tracking

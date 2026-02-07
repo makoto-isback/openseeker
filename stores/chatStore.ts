@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { Message, readMessages, saveMessages } from '../services/memory';
 import { sendMessage as apiSendMessage } from '../services/api';
 import { useMemoryStore } from './memoryStore';
+import { useWalletStore } from './walletStore';
+import { buildWalletContext } from '../services/onChainPortfolio';
 import { processResponse } from '../services/memoryEngine';
 import { addAlert } from '../services/alerts';
 import { addDCAConfig } from '../services/dca';
@@ -80,11 +82,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ isLoading: true, isSending: true });
 
     try {
-      // 4. Gather context from memory store
+      // 4. Gather context from memory store + on-chain holdings
       const memStore = useMemoryStore.getState();
-      const { soul, userMemory, wallet } = memStore;
+      const { userMemory } = memStore;
       const { getContext } = await import('../services/memory');
       const context = await getContext();
+      const walletState = useWalletStore.getState();
+      const walletContext = walletState.portfolioData
+        ? buildWalletContext(walletState.portfolioData)
+        : walletState.balance > 0
+          ? `User holds: ${walletState.balance.toFixed(4)} SOL`
+          : '';
 
       // 5. Call API with agent name, park context, and filtered history
       const { agentName, parkMode } = useSettingsStore.getState();
@@ -100,10 +108,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const result = await apiSendMessage({
         message: text,
-        soul,
+        soul: '',
         memory: userMemory,
         context,
-        wallet,
+        wallet: walletContext,
         history,
         agent_name: agentName,
         park_context: parkContext,
