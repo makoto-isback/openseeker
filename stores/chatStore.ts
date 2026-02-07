@@ -137,8 +137,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
-      // 7. Add AI response with skill results
-      await addMessage('assistant', result.response, result.skill_results);
+      // 7. Add AI response with skill results + x402 info
+      const aiMsg = await addMessage('assistant', result.response, result.skill_results);
+      if ((result as any).x402) {
+        aiMsg.x402 = (result as any).x402;
+        // Re-save with x402 info
+        const msgs = get().messages.map(m => m.id === aiMsg.id ? aiMsg : m);
+        set({ messages: msgs });
+        await saveMessages(msgs);
+      }
 
       // 8. Handle skill side-effects (e.g. save price alerts)
       if (result.skill_results) {

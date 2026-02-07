@@ -3,6 +3,7 @@ const { buildChatPrompt, buildSkillResponsePrompt } = require('../services/promp
 const { chat: aiChat } = require('../services/aiRouter');
 const { executeSkill, parseSkillTags, cleanSkillTags, parseToolTags, cleanToolTags } = require('../services/skills');
 const { x402 } = require('../middleware/x402');
+const { x402Gate } = require('../middleware/x402Middleware');
 const {
   formatMemoryForPrompt,
   extractMemoriesFromChat,
@@ -58,7 +59,8 @@ function cleanResponse(text) {
 const ECOSYSTEM_KEYWORDS = /\b(dapp|dapps|d-app|d-apps|protocol|protocols|platform|platforms|ecosystem|top apps|best apps|what apps|which apps|solana apps|built on solana|projects on solana)\b/i;
 
 // POST /chat — Two-pass skill detection + execution
-router.post('/', x402(0.002), async (req, res) => {
+// x402Gate: free messages first (100), then x402 standard USDC, then legacy credits
+router.post('/', x402Gate('chat_standard', { freeMessages: true }), async (req, res) => {
   try {
     const { message, soul, memory, context, wallet, history, agent_name, park_context, park_mode } = req.body;
 
@@ -118,6 +120,7 @@ router.post('/', x402(0.002), async (req, res) => {
         response: cleaned,
         memory_count: memoryCount,
         model: `${pass1Result.provider}/${pass1Result.model}`,
+        x402: req.x402 || undefined,
       });
     }
 
@@ -170,6 +173,7 @@ router.post('/', x402(0.002), async (req, res) => {
       skill_results: skillResults,
       memory_count: memoryCount,
       model: `${pass2Result.provider}/${pass2Result.model}`,
+      x402: req.x402 || undefined,
     });
   } catch (error) {
     console.error('[Chat] Error:', error.message);

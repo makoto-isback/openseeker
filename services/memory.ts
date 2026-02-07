@@ -257,6 +257,12 @@ export interface Message {
     data?: any;
     error?: string;
   }>;
+  x402?: {
+    paid: boolean;
+    free: boolean;
+    freeRemaining?: number;
+    amount?: string;
+  };
 }
 
 export async function readMessages(): Promise<Message[]> {

@@ -71,6 +71,25 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  -- Free message tracking for x402 standard
+  CREATE TABLE IF NOT EXISTS free_messages (
+    wallet_address TEXT PRIMARY KEY,
+    remaining INTEGER DEFAULT 100,
+    total_used INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- x402 payment log (standard x402 protocol payments)
+  CREATE TABLE IF NOT EXISTS x402_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_address TEXT,
+    endpoint TEXT NOT NULL,
+    amount_usdc TEXT NOT NULL,
+    tx_signature TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   -- Create indexes for faster queries
   CREATE INDEX IF NOT EXISTS idx_deposits_wallet ON deposits(wallet_address);
   CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
@@ -121,6 +140,23 @@ const statements = {
       COUNT(*) as count
     FROM spend_log
     WHERE wallet_address = ? AND created_at >= ?
+  `),
+
+  // Free messages
+  getFreeMessages: db.prepare('SELECT * FROM free_messages WHERE wallet_address = ?'),
+  createFreeMessages: db.prepare('INSERT OR IGNORE INTO free_messages (wallet_address) VALUES (?)'),
+  decrementFreeMessages: db.prepare(`
+    UPDATE free_messages
+    SET remaining = remaining - 1,
+        total_used = total_used + 1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE wallet_address = ? AND remaining > 0
+  `),
+
+  // x402 payment log
+  logX402Payment: db.prepare(`
+    INSERT INTO x402_payments (wallet_address, endpoint, amount_usdc, tx_signature)
+    VALUES (?, ?, ?, ?)
   `),
 
   // Agent memory
@@ -235,6 +271,24 @@ function getSpendStats(walletAddress, since) {
   return statements.getSpendStats.get(walletAddress, since.toISOString());
 }
 
+// === Free message functions ===
+
+function getFreeMessagesRemaining(walletAddress) {
+  statements.createFreeMessages.run(walletAddress);
+  const row = statements.getFreeMessages.get(walletAddress);
+  return row ? row.remaining : 0;
+}
+
+function decrementFreeMessages(walletAddress) {
+  statements.createFreeMessages.run(walletAddress);
+  const result = statements.decrementFreeMessages.run(walletAddress);
+  return result.changes > 0;
+}
+
+function logX402Payment(walletAddress, endpoint, amountUsdc, txSignature) {
+  statements.logX402Payment.run(walletAddress || '', endpoint, amountUsdc, txSignature || '');
+}
+
 // === Memory functions ===
 
 function getMemories(walletAddress, category) {
@@ -298,6 +352,10 @@ module.exports = {
   creditDeposit,
   deductSpend,
   getSpendStats,
+  // Free messages (x402 standard)
+  getFreeMessagesRemaining,
+  decrementFreeMessages,
+  logX402Payment,
   // Memory
   getMemories,
   saveMemory,

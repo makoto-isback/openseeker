@@ -56,8 +56,19 @@ export async function paidFetch(
 
     // Handle 402 Payment Required
     if (res.status === 402) {
-      const errorInfo: PaymentError = await res.json();
+      const errorInfo = await res.json();
 
+      // x402 standard 402 response (has x402Version or accepts array)
+      if (errorInfo.x402Version || errorInfo.accepts) {
+        const price = errorInfo.accepts?.[0]?.maxAmountRequired;
+        const priceUsdc = price ? (parseInt(price) / 1_000_000).toFixed(4) : 'unknown';
+        throw new Error(
+          `Payment required: $${priceUsdc} USDC. ` +
+          `Free messages exhausted. Deposit USDC to continue.`
+        );
+      }
+
+      // Legacy 402 response (credit system)
       if (errorInfo.message === 'Insufficient balance') {
         throw new Error(
           `Insufficient balance ($${errorInfo.balance?.toFixed(4) || '0'}). ` +

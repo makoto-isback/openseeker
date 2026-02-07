@@ -35,7 +35,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             error={sr.error}
           />
         ))}
-        <Text style={styles.timestamp}>{formatTime(message.timestamp)}</Text>
+        <View style={styles.footerRow}>
+          {!isUser && message.x402 && (
+            <Text style={styles.x402Status}>
+              {message.x402.free
+                ? `Free (${message.x402.freeRemaining ?? '?'} left)`
+                : message.x402.amount
+                  ? `$${(parseInt(message.x402.amount) / 1_000_000).toFixed(4)} USDC`
+                  : 'Paid'
+              }
+            </Text>
+          )}
+          <Text style={styles.timestamp}>{formatTime(message.timestamp)}</Text>
+        </View>
       </View>
     </View>
   );
@@ -93,10 +105,19 @@ const styles = StyleSheet.create({
   assistantText: {
     color: colors.text,
   },
+  footerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  x402Status: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
   timestamp: {
     fontSize: fontSize.xs,
     color: colors.textMuted,
-    marginTop: spacing.xs,
-    alignSelf: 'flex-end',
+    marginLeft: 'auto',
   },
 });

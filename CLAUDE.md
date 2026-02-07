@@ -12,7 +12,7 @@ OpenSeeker is a crypto-native AI companion app for the Solana Seeker phone. Buil
 - **Prices**: CoinGecko free API with 60s in-memory cache (extends to 5min on 429)
 - **Notifications**: expo-notifications (local push)
 - **Background**: expo-background-fetch + expo-task-manager
-- **Payments**: x402 micropayment protocol — dual mode: real x402 SDK (@x402/express + @x402/svm) + credit system fallback
+- **Payments**: x402 standard protocol (x402-solana + PayAI facilitator) + legacy credit system fallback. 100 free messages per wallet, then USDC per-request via x402.
 - **Social**: Supabase (Agent Park, Realtime)
 - **Gamification**: XP/Level system with achievements
 - **Wallet**: Embedded wallet (expo-secure-store + @scure/bip39 + @noble/hashes + tweetnacl) OR Privy wallet (Google/Email login)
@@ -67,7 +67,8 @@ openseeker/
 │   ├── memory.ts            # AsyncStorage CRUD for memory + daily keys
 │   ├── onChainPortfolio.ts  # Fetch real SOL + SPL token balances from Solana RPC, price resolution, 30s cache
 │   ├── api.ts               # HTTP client: sendMessage, heartbeat, briefing, checkHealth, swap, park endpoints
-│   ├── x402.ts              # x402 payment protocol — paidFetch wrapper, test mode headers
+│   ├── x402.ts              # x402 payment protocol — paidFetch wrapper, handles standard + legacy 402 responses
+│   ├── x402Client.ts        # x402 standard client — x402Fetch wrapper for React Native
 │   ├── privyBridge.ts       # Singleton bridge: stores Privy provider for non-React service code
 │   ├── spending.ts          # Spend tracking — recordSpend, getTodaySpend, getMonthSpend, checkDailyLimit
 │   ├── embeddedWallet.ts    # Core crypto layer — mnemonic gen, BIP44 derivation, SecureStore
@@ -99,7 +100,8 @@ openseeker/
 │   └── RiskConsentScreen.tsx # One-time risk acceptance screen (OpenClaw-style) for auto-trade execution
 ├── server/
 │   ├── index.js             # Express setup, CORS, rate limiting, route mounting, real x402 middleware, Railway-ready
-│   ├── middleware/x402.js   # Dual-mode x402: real x402 SDK (@x402/express) + credit system fallback
+│   ├── middleware/x402.js   # Legacy x402: credit system (X-Wallet) + test mode + real @x402/express
+│   ├── middleware/x402Middleware.js  # x402 standard: x402Gate() with free messages + PayAI + legacy fallback
 │   ├── routes/
 │   │   ├── chat.js          # POST /chat — AI chat with context + skill detection (x402: $0.002)
 │   │   ├── health.js        # GET /health — status check (free)
@@ -110,7 +112,8 @@ openseeker/
 │   │   ├── park.js          # POST /park/generate — AI-generated park posts (x402: $0.005)
 │   │   ├── whale.js         # Whale tracking routes (POST /watch, GET /watched, DELETE /watch/:wallet, GET /activity/:wallet, GET /feed)
 │   │   ├── domains.js       # .os domain routes (check, price, register, my, lookup, leaderboard, stats)
-│   │   └── memory.js        # Persistent memory routes (get, save, forget, daily, recap)
+│   │   ├── memory.js        # Persistent memory routes (get, save, forget, daily, recap)
+│   │   ├── x402Public.js   # Public x402 API for other agents (trending, price, research, whale, news, discovery)
 │   │   ├── defi.js          # GET /api/defi/yields — DeFiLlama Solana pools with categorization (free)
 │   │   └── tokens.js        # GET /api/tokens/trending + /api/tokens/research/:address — DexScreener (free)
 │   ├── utils/
@@ -130,8 +133,9 @@ openseeker/
 │       ├── tokenResearch.js # Token safety analysis (CoinGecko + heuristics)
 │       ├── news.js          # CoinGecko trending + mock news fallback
 │       ├── walletParser.js  # Server-side wallet markdown parser
-│       └── memory.js        # Persistent agent memory service (SQLite-backed)
-│       └── solana.js        # On-chain payment verification (domain registration)
+│       ├── memory.js        # Persistent agent memory service (SQLite-backed)
+│       ├── solana.js        # On-chain payment verification (domain registration)
+│       └── x402Handler.js   # x402-solana X402PaymentHandler wrapper + pricing tiers
 ├── app.json
 ├── index.js                 # Entry point — polyfills (fast-text-encoding, @ethersproject/shims) before expo-router
 ├── metro.config.js          # Metro bundler config — Privy package export overrides
@@ -189,6 +193,12 @@ openseeker/
 - `GET /api/memory/recap/:wallet` — AI-generated weekly recap (free)
 - `GET /api/memory/prompt/:wallet` — formatted memory string for AI prompt (free)
 - `GET /api/memory/credits/:wallet` — credit balance info (free)
+- `GET /api/x402/.well-known/x402` — x402 service discovery (free)
+- `GET /api/x402/trending` — live trending tokens (x402: $0.001 USDC)
+- `GET /api/x402/price/:symbol` — token price (x402: $0.0005 USDC)
+- `GET /api/x402/research/:token` — deep token research (x402: $0.005 USDC)
+- `GET /api/x402/whale-alerts` — whale movements (x402: $0.002 USDC)
+- `GET /api/x402/news` — crypto news (x402: $0.001 USDC)
 
 ## Architecture Conventions
 - **Entry point**: `expo-router/entry` (set in package.json `main`)
@@ -197,7 +207,7 @@ openseeker/
 - **Portfolio data**: On-chain via Solana RPC (`Connection.getBalance` + `getParsedTokenAccountsByOwner`). `services/onChainPortfolio.ts` fetches real balances, resolves mint addresses via `constants/tokenMints.ts`, gets USD prices from `/price/:symbol`. Cached 30s. `walletStore.ts` is the single source of truth — has `holdings`, `totalUsd`, `portfolioData`, `refreshHoldings()`. No more WALLET.md or SOUL.md — all .md file dependencies removed (Day 18).
 - **Memory system**: MEMORY.md + DAILY in AsyncStorage with `@openseeker/` prefix. Services in `services/memory.ts`.
 - **API calls**: All server communication goes through `services/api.ts`. Paid endpoints use `paidFetch()` from `services/x402.ts`.
-- **x402 payments**: Dual-mode on server: (1) Real x402 protocol via @x402/express + @x402/svm — checks PAYMENT-SIGNATURE header, uses Coinbase facilitator for settlement. (2) Credit system fallback via X-Wallet header + SQLite balance. Client `paidFetch()` handles 402 → create payment → retry. Test mode: `test:{wallet}:{timestamp}` header. Spending tracked in `services/spending.ts`.
+- **x402 payments**: Three-tier payment system via `x402Gate()` middleware: (1) Free messages — first 100 per wallet, tracked in SQLite `free_messages` table. (2) x402 standard protocol — `x402-solana` SDK, `X402PaymentHandler`, PayAI facilitator (`https://facilitator.payai.network`), USDC per-request, PAYMENT-SIGNATURE header. (3) Legacy credit system fallback — X-Wallet header + SQLite balance deduction. Public x402 API at `/api/x402/*` — other agents pay USDC to use OpenSeeker data (trending, price, research, whale, news). Discovery at `/api/x402/.well-known/x402`.
 - **Memory engine**: `services/memoryEngine.ts` runs after every AI response — logs to DAILY, extracts facts, compresses context every 20 messages.
 - **Heartbeat**: Background fetch (30min) + foreground interval as backup. Checks prices, evaluates portfolio, triggers alerts, checks trading orders, checks DCA, reads Agent Park messages when parkMode !== 'off', calls AI for notable events.
 - **Notifications**: Local push via expo-notifications. Android channel: "openseeker-alerts". Morning briefing at 7AM, night summary at 10PM.
@@ -225,193 +235,22 @@ openseeker/
 - **CoinGecko**: 60s in-memory cache (extends to 5min on 429 rate limit). Symbol→ID mapping in `coingecko.js`. Mock fallback on API failure.
 - **Jupiter**: Swap quotes + swap transactions via `api.jup.ag/swap/v1`. Falls back to mock rates/transactions when API unavailable.
 
-## Key Design Decisions
-- Tab icons are emoji `<Text>` components (not vector icons) for simplicity
-- `Platform.select()` used for font family in StyleSheet (iOS: Menlo, Android: monospace)
-- Server and app have separate `package.json` / `node_modules`
-- Chat history (last 10 messages) sent with every request for conversation continuity
-- Connection status dot (green/red) checks `/health` every 30 seconds
-- Heartbeat runs initial check 5s after app launch, then on configured interval
-- CoinGecko free API — batch requests where possible to minimize calls
-- x402 dual-mode: real x402 SDK (PAYMENT-SIGNATURE header) + credit system (X-Wallet header). Health and price routes are free
-- Swap execution uses embedded wallet auto-signing — no external wallet popup
-- DCA runs in heartbeat but only logs (no actual swap execution for hackathon safety)
-- Daily spend limit defaults to $1.00, configurable in Settings
-- Portfolio reads on-chain holdings from `walletStore.holdings` (SOL + SPL tokens via RPC), prices via `/price/:symbol`
-- Agent Park uses Supabase for persistence + Realtime for live feed updates
-- Park posts generated via `/park/generate` (x402: $0.005) with personality-driven AI
-- Gamification: 10 levels (Newborn→Transcendent), XP earned from chat (+1), swap (+5/+10), DCA (+5), park post (+2)
-- Achievements: 10 counter-based achievements tracked in AsyncStorage
-- Quick action chips send pre-filled messages to the chat
-- Agent Park is a modal screen accessed via FAB button on Chat tab
-
 ## Gotchas
-- `llama-3.1-70b-versatile` was decommissioned — use `llama-3.3-70b-versatile`
-- zsh shell mangles JSON with escaped characters — use `-d @file.json` for curl testing
-- Must kill port 3000 between server restarts: `lsof -ti:3000 | xargs kill -9`
-- CoinGecko free tier: 10-30 calls/min — cache auto-extends to 5min on 429
 - `npm install --legacy-peer-deps` needed due to react-dom peer conflict with expo packages
-- Background fetch on mobile is unreliable — foreground interval is the primary mechanism
-- Jupiter v6 API (`quote-api.jup.ag`) deprecated — now `api.jup.ag/swap/v1` (may need API key). Mock fallback included.
-- Skill handlers accept both `token` and `symbol` params for robustness (AI may use either)
-- x402 middleware is dual-mode: real x402 SDK runs globally (checks PAYMENT-SIGNATURE), credit system is per-route via `x402(price)`. `req.x402Settled` flag prevents double-charging.
-- Server `.env` needs `X402_MODE=test` for test payment verification. For real x402: set `X402_PAY_TO` (Solana address to receive payments), `X402_FACILITATOR_URL` (defaults to https://x402.org/facilitator), `SOLANA_NETWORK=mainnet` for prod.
-- `paidFetch()` won't re-charge on second-request failure — only charges after successful retry
-- Supabase needs `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` env vars
-- Agent Park requires Supabase tables: `agent_profiles` (with unique wallet_address) and `park_messages` (with FK to agent_profiles)
-- Supabase RLS: public read, insert for all, update owner-only on profiles
-- `AbortSignal.timeout()` does NOT exist in React Native (Hermes engine) — use `AbortController` + `setTimeout` pattern instead (see `timeoutSignal()` helper in `services/balance.ts`)
-- Embedded wallet: `signAndSendTransaction()` handles both legacy `Transaction` (from balance.ts deposits) and `Uint8Array` (from Jupiter VersionedTransaction). It auto-detects the type.
-- SOL deposit flow: get deposit address from server → build `SystemProgram.transfer` tx → auto-sign with embedded wallet → confirm on-chain → server verifies and credits x402 balance
+- `AbortSignal.timeout()` does NOT exist in React Native (Hermes engine) — use `AbortController` + `setTimeout` pattern
+- Do NOT use `bip39` or `ed25519-hd-key` npm packages — they depend on Node.js `stream`/`cipher-base`. Use `@scure/bip39` + `@noble/hashes` instead.
 - SecureStore keys: `openseeker_mnemonic`, `openseeker_private_key`, `openseeker_address` — only `services/embeddedWallet.ts` should touch these
-- Do NOT use `bip39` or `ed25519-hd-key` npm packages — they depend on Node.js `stream`/`cipher-base` which don't exist in React Native. Use `@scure/bip39` + `@noble/hashes` instead (pure JS, zero Node deps). BIP44 derivation is manual HMAC-SHA512 in `embeddedWallet.ts`.
-- Release APK needs `android:usesCleartextTraffic="true"` in main `AndroidManifest.xml` — Expo prebuild only adds it to debug manifest. Without it, HTTP requests to `10.0.2.2:3000` silently fail.
-- After `npx expo prebuild --clean`, must manually re-add `usesCleartextTraffic="true"` to `android/app/src/main/AndroidManifest.xml` `<application>` tag.
-- New wallet needs test credits to work — heartbeat/chat return 402 without credits, which shows as "Offline". Credit via: `curl -X POST http://localhost:3000/deposit/credit-test -H "Content-Type: application/json" -d '{"wallet":"FULL_ADDRESS","amount":10}'`
-- Dev builds cache JS bundles — Metro hot reload may not reach the app if it disconnects. Use `npx expo run:android` to rebuild with latest code, or ensure dev client URL points to Metro (`10.0.2.2:8081` for emulator)
-- Privy requires `metro.config.js` with specific package export overrides (disable for `isows`/`zustand`, enable for `@privy-io/*`, browser condition for `jose`)
+- WALLET.md and SOUL.md are fully removed — do NOT re-add `readSoul()`, `readWallet()`, `updateWallet()`, `walletParser`, or `walletManager`
+- After `npx expo prebuild --clean`, must re-add `usesCleartextTraffic="true"` to `android/app/src/main/AndroidManifest.xml`
+- New wallet needs test credits — 402 without credits shows as "Offline"
 - Privy polyfills must be imported in `index.js` BEFORE app entry: `fast-text-encoding`, `react-native-get-random-values`, `@ethersproject/shims`
-- Privy wallet cold start takes 1-3s — `signAndSendTransaction` waits up to 10s for provider to be ready when walletType is 'privy'
-- `tsconfig.json` needs `"moduleResolution": "Bundler"` for Privy type resolution
-- Server is Railway-ready: uses `process.env.PORT`, `trust proxy`, `0.0.0.0` binding. Deploy `server/` directory only.
-- Railway env vars needed: `GROQ_API_KEY`, `X402_MODE` (test or production), optionally `X402_PAY_TO`, `SOLANA_NETWORK`
-- After Railway deployment: update `DEFAULT_SERVER_URL` in `stores/settingsStore.ts` to Railway URL (e.g., `https://openseeker-server.up.railway.app`), then rebuild APK
-- Real x402 SDK packages: `@x402/core`, `@x402/express`, `@x402/svm` (all ^2.3.0) — installed in server/
-- `registerExactSvmScheme(server)` from `@x402/svm/exact/server` — NOT `new ExactSvmScheme().server` (that's client-side only)
-- x402 route config needs `accepts: { scheme: 'exact', network, asset, amount, payTo, maxTimeoutSeconds }` wrapping — flat config causes "Cannot read 'network'" error
-- Jupiter referral: `platformFeeBps=25` in quote URL, `feeAccount=FqQ7qbKWi8yYXFbbwDvPbqcwbKzyu5CLa7hFLRh58yc5` in swap body. 0.25% on all swaps.
-- DeFiLlama API: `https://yields.llama.fi/pools` — free, returns all chains, must filter `chain === 'Solana'`. Cache 5min.
-- DexScreener API: `token-boosts/top/v1` for trending, `latest/dex/tokens/{address}` for pair data, `latest/dex/search?q=` for symbol search. Free, no auth.
-- Safety scoring: 1-10 scale based on liquidity, token age, volume, buy/sell ratio. Flags: LOW_LIQUIDITY, NEW_TOKEN, HIGH_SELL_PRESSURE.
-- Liquid staking tokens: JitoSOL (`J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn`), mSOL (`mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So`), bSOL (`bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1`)
-- SkillCard.tsx switch: do NOT duplicate `case` labels — JS falls through to the first match. The `token_research` case checks `data?.token` for DexScreener-enhanced rendering vs CoinGecko fallback.
-- .os Domain System: Pricing is character-length based (OG 1-2: 2 SOL, Premium 3-4: 0.5 SOL, Standard 5+: 0.1 SOL). Test mode (`X402_MODE=test`) allows `test_simulation` tx signatures for domain registration. Treasury wallet set via `TREASURY_WALLET` env var. In-memory domain storage used as fallback when Supabase is not configured. Domain state persisted in AsyncStorage `@openseeker/os_domain`.
-- send_token resolves .os domain names to wallet addresses via `/api/domains/lookup/`. The `osDomain` field in skill result indicates a domain was resolved.
-- Onboarding flow now: wallet creation → agent naming → risk consent → .os domain upsell → main app. Users can skip risk consent and domain claim.
-- Groq free tier: 100k tokens/day (TPD) limit on `llama-3.3-70b-versatile`. When TPD exhausted, skips 8b fallback entirely and falls through to Gemini 2.0 Flash (8b can't follow tool tag instructions). `aiRouter.js` handles the fallback chain.
-- Tool tag format `[TAG:args]` is the primary format. Legacy `[SKILL:name:params]` is kept as fallback. `parseToolTags()` runs first, then `parseSkillTags()` if no tags found.
-- Risk consent state persisted in AsyncStorage `@openseeker/risk_consent` as JSON with `accepted` boolean and `acceptedAt` ISO timestamp. Loaded during `loadAgentName()` on app startup.
-- Trade skill gating: `chatStore.ts` checks `riskAccepted` before allowing fund-moving skills (swap_quote, limit_buy, limit_sell, stop_loss, dca_setup, send_token, sell_token, rotate_token, go_stablecoin, liquid_stake). Non-trade skills always pass through.
-- Persistent memory uses X-Wallet header from paidFetch to identify wallet address for memory operations. Memory extraction runs async after each chat response (non-blocking). Max 100 memories per wallet. Memory tables are in the same SQLite DB as credit system (server/openseeker.db).
-- Memory extraction AI call uses separate Groq request — counts against TPD. If extraction fails, chat still works (extraction is fire-and-forget).
-- Daily log events accumulate without limit — consider periodic cleanup for production.
-- WALLET.md and SOUL.md are fully removed — do NOT re-add `readSoul()`, `readWallet()`, `updateWallet()`, `walletParser`, or `walletManager`. All portfolio data comes from on-chain RPC via `onChainPortfolio.ts`. Wallet context for AI is built by `buildWalletContext()` from `walletStore.portfolioData`.
-- `onChainPortfolio.ts` caches for 30s — call `clearPortfolioCache()` after swaps/transfers to force refresh.
-- Unknown SPL tokens (not in `TOKEN_MINTS`) show as abbreviated mint addresses (e.g. `EPjF...Dt1v`).
+- Privy requires `metro.config.js` with specific package export overrides
+- `registerExactSvmScheme(server)` from `@x402/svm/exact/server` — NOT `new ExactSvmScheme().server`
+- x402 route config needs `accepts: { scheme, network, asset, amount, payTo, maxTimeoutSeconds }` wrapping — flat config causes "Cannot read 'network'" error
+- SkillCard.tsx switch: do NOT duplicate `case` labels — JS falls through to the first match
+- Server `.env` needs `X402_MODE=test` for test payments. Railway env vars: `GROQ_API_KEY`, `X402_MODE`, optionally `X402_PAY_TO`, `SOLANA_NETWORK`
+- Jupiter referral: `platformFeeBps=25` in quote URL, `feeAccount=FqQ7qbKWi8yYXFbbwDvPbqcwbKzyu5CLa7hFLRh58yc5` in swap body
+- x402-solana uses CAIP-2 network identifiers (e.g. `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` for devnet). Amounts in atomic units: $0.001 = '1000', $0.002 = '2000'
+- x402Gate checks: free messages → PAYMENT-SIGNATURE (x402 standard) → X-Wallet (legacy credits) → 402. This order ensures backward compatibility
+- Liquid staking mints: JitoSOL (`J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn`), mSOL (`mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So`), bSOL (`bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1`)
 
-## Day Progress
-- **Day 1**: Foundation — scaffolding, screens, stores, server, memory system
-- **Day 2**: AI Chat — api service, memory engine, chat flow with personality + context + skill detection
-- **Day 3**: Heartbeat + Notifications — CoinGecko prices, heartbeat engine, price alerts, push notifications, morning/night briefings
-- **Day 4**: Skills System — two-pass AI skill detection, 7 skills (price, portfolio, swap, whale, research, alerts, news), rich SkillCard UI, Jupiter/CoinGecko integration
-- **Day 5**: x402 Payments + Swap Execution + Polish — x402 micropayment protocol (test mode), spending tracker, swap execution with confirm/cancel UI, TransactionCard, DCA foundation, full Portfolio tab with live prices, Skills tab with 8-skill grid, expanded Settings (spending, DCA, wallet, memory, advanced sections), CoinGecko 429 handling
-- **Day 6**: Agent Park + Demo Polish — Supabase integration, Agent Park (profiles, leaderboard, town square, realtime), park post generation via AI, gamification (XP/levels/achievements), quick action chips, level badge, offline banner, improved error messages, token emojis, skeleton loading, demo seed data, DEMO.md script
-- **Day 7**: Embedded Wallet Migration — Replaced MWA (Phantom) with embedded wallet (expo-secure-store + @scure/bip39 + @noble/hashes + tweetnacl). App holds keypair, auto-signs all transactions. Added onboarding screen (create/import wallet flows). Removed all MWA dependencies. Fixed Node.js `stream` polyfill error by switching to pure JS crypto libs. Fixed release APK cleartext traffic for local dev server.
-- **Day 8**: Trading Order System — Limit buy/sell, stop loss orders via chat. 5 new skills (limit_buy, limit_sell, stop_loss, view_orders, cancel_order). Price watcher (60s polling when orders active). Auto-execution via swap service. OrderCard UI in chat. Active Orders section in Settings. Heartbeat integration for order checking.
-- **Day 9**: Privy Integration + Real x402 + Polish — Added Privy SDK for Google/Email login (alternative to embedded wallet). Singleton bridge pattern for non-React Privy access. Real x402 SDK integration on server (dual mode: @x402/express + credit fallback). UI polish: keyboard handling, auto-scroll, offline retry button, improved error messages. Server Railway-ready (PORT env, trust proxy, rate limits). Final APK built and tested.
-- **Day 10**: DeFi Skills + Jupiter Referral — Jupiter referral fee (0.25%, account FqQ7qbKWi8yYXFbbwDvPbqcwbKzyu5CLa7hFLRh58yc5) on all swaps. 3 new skills: defi_yields (DeFiLlama API, pool categorization, difficulty ratings), trending_tokens (DexScreener boosts + pair data, safety scoring 1-10), liquid_stake (SOL→JitoSOL/mSOL/bSOL via Jupiter, APY from DeFiLlama). Enhanced token_research with DexScreener data (multi-timeframe prices, liquidity, buy/sell ratio, safety flags). 3 new chat UI cards: DefiYieldCard, TrendingTokensCard, TokenResearchCard. In-memory caching (server/utils/cache.js). New routes: /api/defi/yields, /api/tokens/trending, /api/tokens/research/:addressOrSymbol. Fixed duplicate switch case bug in SkillCard.tsx.
-- **Day 11**: Agent Park Enhancement — Agent naming in onboarding (name-agent step after wallet creation, stored in AsyncStorage + settingsStore). Dynamic agent name throughout app (chat, park, heartbeat, notifications, AI system prompt). Park settings in Settings tab (mode: off/listen/active, daily budget, topic toggles). 3 new park skills (park_digest, park_consensus, park_post). Reputation system (services/reputation.ts — tiers, consensus calculation). Heartbeat reads park messages when parkMode !== 'off'. Chat sends agent_name + park_context to server for park skill context injection.
-- **Day 12**: Advanced Skills — 10 new skills bringing total to 29. New Token Scanner (DexScreener latest profiles, safety scoring, age tracking). Send SOL/Tokens (services/transfer.ts, SystemProgram.transfer, confirm/cancel UI). Sell/Rotate/Emergency Exit (sell_token, rotate_token, go_stablecoin — all via Jupiter swap with confirm UI). Smart Price Alerts (view_alerts, cancel_alert — client-side alert CRUD). Whale Copy Trade (whale_track, whale_activity, whale_stop — AsyncStorage watched wallets, server /api/whale routes with Helius API + mock fallback). 4 new UI cards: SendConfirmCard, SellConfirmCard, WhaleTrackCard, NewTokensCard. Watched Wallets section in Settings. Extended /api/tokens with /new endpoint. Updated prompts.js with all new skill tags and rules.
-- **Day 13**: Full Audit + Bug Fixes — End-to-end testing of all 17 server endpoints and all 29 skills via /chat. Fixed: AI fallback model (llama-3.1-8b-instant) for Groq rate limit/TPD exhaustion in ai.js. Fixed whale_activity skill crash (missing `label` parameter destructuring). Added 4 missing SkillCard cases (news_digest, park_digest, park_consensus, park_post). Added order creation field validation in chatStore.ts. Added swap_quote parameter validation in skills.js. TypeScript 0 errors. Jupiter referral verified on all swap paths. Settings audit: all 14 sections present.
-- **Day 14**: .os Domain Identity System — Full domain name system for AI agents. Tiered pricing: OG (1-2 chars, 2 SOL), Premium (3-4 chars, 0.5 SOL), Standard (5+ chars, 0.1 SOL). 7 new server endpoints (check, price, register, my, lookup, leaderboard, stats) at /api/domains/. On-chain SOL payment verification (server/services/solana.js) with replay attack protection. Domain config with reserved names (server/config/domains.js). Client-side domain service (services/domainService.ts). VerifiedBadge component with 3 tiers (OG gold crown, Premium purple gem, Standard blue check). Badge integrated in: chat header, Agent Park messages, leaderboard rows, agent cards, settings. 2 new skills: claim_domain, lookup_domain (total: 31). DomainClaimCard UI for chat. Onboarding .os upsell screen after agent naming. send_token resolves .os domains to wallet addresses. Settings domain identity section. Demo seed data includes verified agents. Supabase queries include domain fields. SQL migration for agent_profiles (os_domain, domain_tier, is_verified, etc.) + domain_registrations table. In-memory fallback for dev/demo. TypeScript 0 errors.
-- **Day 15**: Emulator Testing + GitHub Push + Railway Deploy — Full end-to-end testing on Android emulator. Production APK built pointing to Railway server (https://openseeker-production.up.railway.app). GitHub repo live at https://github.com/makoto-isback/openseeker. Server deployed on Railway.
-- **Day 16**: Persistent Agent Memory System — OpenClaw-style brain for the AI agent. SQLite-backed persistent memory with auto-extraction from chat. 2 new DB tables: agent_memory (facts about user, categorized, with confidence scores) and agent_daily_log (event logging per day). Server-side memory service (server/services/memory.js) with AI-powered fact extraction, daily summaries, weekly recaps. 12 new API endpoints at /api/memory/. Memory injected into chat system prompt as "PERSISTENT BRAIN" section — AI naturally references stored facts. Heartbeat logs portfolio events. 5 new skills: my_memory (show stored memories), remember_this (explicit save), forget_this (delete by search), daily_recap (AI summary of today), weekly_recap (7-day summary). MemoryCard.tsx component with 5 card variants. Total skills: 36. TypeScript 0 errors. All endpoints tested and working.
-- **Day 17**: Tool Tag Routing + Risk Consent + Auto-Execute — Refactored skill system from verbose `[SKILL:name:params]` to compact `[TAG:args]` format (e.g. `[PRICE:SOL]`, `[SWAP:SOL,WIF,1]`). Added `TOOL_TAG_MAP` (33 entries) and `parseToolTags()` to skills.js. Prompt rewritten: `## SKILL DETECTION` → `## AVAILABLE TOOLS`. AI now decides when to use tools vs answer from knowledge. Fallback chain: new tags → old SKILL tags. Removed Groq 8b fallback — when 70b hits TPD, skips to Gemini directly (8b can't follow tool tag instructions). Implemented OpenClaw-style one-time risk consent: `RiskConsentScreen.tsx` with permissions + disclaimers, added to onboarding flow between agent naming and domain upsell. All trade cards (SwapCard, LiquidStakeCard, SendConfirmCard, SellConfirmCard) auto-execute on mount when risk accepted. Trade skills gated in chatStore — filtered out if `!riskAccepted`. System prompt updated with `## EXECUTION MODE` telling AI to never ask for confirmation. Deployed to Railway (auto-deploy from GitHub push). APK rebuilt (67MB). TypeScript 0 errors. All 5 live tests pass (ecosystem knowledge, price, trending, analysis, general knowledge).
-- **Day 18**: Remove .md File Dependencies — Replaced WALLET.md/SOUL.md with real on-chain data. New `onChainPortfolio.ts` service fetches SOL + SPL token balances from Solana RPC (`getBalance` + `getParsedTokenAccountsByOwner`), resolves mint addresses via `tokenMints.ts` (17 tokens), gets USD prices from `/price/:symbol`, 30s cache. `walletStore.ts` now has `holdings`, `totalUsd`, `portfolioData`, `refreshHoldings()` — single source of truth. Portfolio tab reads on-chain data. Chat + heartbeat build wallet context string from live balances (`buildWalletContext()`). Swap service refreshes holdings after execution instead of writing to WALLET.md. Deleted: `walletManager.ts`, `walletParser.ts`. Removed: `DEFAULT_SOUL`, `DEFAULT_WALLET`, `readSoul()`, `readWallet()`, `updateSoul()`, `updateWallet()`. Settings no longer shows SOUL.md or WALLET.md editors. `memoryStore.ts` only tracks `userMemory` + `daily`. `memoryEngine.ts` no longer writes trade notes to WALLET.md. TypeScript 0 errors. Net: -171 lines (429 added, 600 removed).
-- **Day 15 (original)**: Emulator Testing — Full end-to-end testing on Android emulator (Pixel device, API 35). APK built (67MB), installed, and tested every screen and flow. Cold start ~3s. Onboarding flow verified: wallet creation (mnemonic generation + 12-word display), agent naming (default "DegenCat"), .os domain upsell (skip works). Chat tab verified: AI responses, memory engine, skill cards, quick action chips, FAB button, level badge, connection status indicator. All 31 skills tested via server API — all returning correct data (CoinGecko live prices, DexScreener trending/research, DeFiLlama yields, Jupiter swap quotes). Portfolio/Skills/Settings tabs all render without errors. Settings has all 14 sections: SOUL.md, Memory, Wallet, Daily Log, Clear/Reset, Gamification (XP/levels), Domain Identity, Agent Park (mode selector, topics), Deposit SOL (presets + custom), Test Credits, Active Orders, Watched Wallets, Price Alerts, Advanced (Server URL, x402 mode). 402 error handling verified — shows user-friendly "Insufficient credits" message. Zero JS errors, zero warnings (session), zero ANR, zero native crashes, zero TypeScript errors. **VERDICT: READY FOR DEMO.**
-
-## Emulator Test Results (Day 15)
-```
-Build: PASS (APK 67MB)
-Install: PASS
-Launch: PASS (~3s cold start)
-TypeScript: 0 errors
-JS Errors: 0
-JS Warnings: 0 (in session)
-ANR: 0
-Native Crashes: 0
-
-Onboarding: ALL PASS
-  - Create wallet (mnemonic gen + display)
-  - Agent naming (default + custom)
-  - .os domain upsell (claim + skip)
-
-Chat: ALL PASS
-  - Send/receive messages
-  - AI personality + memory engine
-  - Quick action chips
-  - Level badge + connection status
-  - 402 error handling (user-friendly message)
-
-Skills (31 total): ALL PASS via server API
-  - price_check (CoinGecko live)
-  - portfolio_track
-  - swap_quote (Jupiter)
-  - trending_tokens (DexScreener live)
-  - defi_yields (DeFiLlama live)
-  - token_research (DexScreener + safety scoring)
-  - new_tokens (DexScreener)
-  - price_alert / view_alerts / cancel_alert
-  - limit_buy / limit_sell / stop_loss / view_orders / cancel_order
-  - send_token / sell_token / rotate_token / go_stablecoin
-  - whale_track / whale_activity / whale_stop
-  - claim_domain / lookup_domain
-  - park_digest / park_consensus / park_post
-  - dca_setup / news_digest / liquid_stake
-
-Tabs: ALL PASS
-  - Chat: messages, skill cards, FAB
-  - Portfolio: value, holdings, wallet address
-  - Skills: 8-skill grid, spend stats
-  - Settings: all 14 sections render
-
-Server Endpoints (20+): ALL PASS
-  - Free: /health, /price/:symbol, /balance/:wallet, /api/defi/yields,
-    /api/tokens/trending, /api/tokens/research/:addr, /api/tokens/new,
-    /api/whale/watched, /api/whale/activity/:wallet, /api/whale/feed,
-    /api/domains/check/:name, /api/domains/price/:name, /api/domains/my/:wallet,
-    /api/domains/lookup/:domain, /api/domains/leaderboard, /api/domains/stats
-  - Paid (x402): /chat, /heartbeat, /briefing, /swap/swap-quote,
-    /swap/swap-execute, /park/generate, /api/whale/watch
-  - Credit: /deposit/credit-test, /deposit/deposit-address
-```
-
-## Post-Hackathon Roadmap
-
-### Fine-Tuning Plan (3 weeks post-hackathon)
-- Fine-tune Llama 3 70B on 1000+ crypto-specific examples (Solana dApps, DeFi, trading, memecoins, on-chain data, agent personality)
-- Data sources: Supabase daily_log + chat history exports, 500 Claude-generated Q&A, 200 manual edge cases
-- Format: JSONL messages pairs
-- Platform: Together.ai or Fireworks.ai ($50-200 one-time, ~$0.20/1M tokens inference)
-- Goal: reduce system prompt by ~50%, model natively speaks crypto
-
-### Post Fine-Tune Routing
-- Custom Llama (Together.ai) → all crypto queries
-- Gemini 2.0 Flash → general knowledge fallback
-- Groq → memory extraction (cheap/fast)
-
-### Current Multi-Model Routing
-- Groq (free) → greetings, price checks, simple chat
-- Gemini 2.0 Flash (free, 1500/day) → complex analysis, research, trading advice
-- GPT-4o-mini → backup if Gemini fails (needs OpenAI key)
-
-### Feature Tiers
-- **Month 1**: On-chain history (Helius), tx simulation (Jupiter), push notifications, routing optimization, fine-tune model
-- **Month 2-3**: PnL charts, strategy backtesting, multi-program (Raydium/Orca/Tensor), NFT awareness, agent tipping, home widget
-- **Month 4+**: Agent marketplace, copy-agent, reputation NFTs, DAO governance, cross-chain (Wormhole), on-chain .os domain NFTs
-
-### Revenue Targets
-- Month 1 (50 users): ~$140/month (AI credits + Jupiter referral + .os domains)
-- Month 3 (500 users): ~$1,400/month
-- Month 6 (5000 users): $10,000/month target
-
-### Competitive Moat
-1. Persistent memory (unique in crypto)
-2. Mobile-first with embedded wallet
-3. Agent Park social layer
-4. Fine-tuned crypto AI
-5. .os identity system
-6. Revenue from day 1 (not token-dependent)
-
-### Pitch Line
-"OpenClaw gave AI agents a computer. OpenSeeker gives AI agents a wallet."
