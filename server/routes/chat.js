@@ -41,6 +41,9 @@ function cleanResponse(text) {
   return cleaned;
 }
 
+// Messages about ecosystem/dApps/protocols should NOT trigger skills
+const ECOSYSTEM_KEYWORDS = /\b(dapp|dapps|d-app|d-apps|protocol|protocols|platform|platforms|ecosystem|top apps|best apps|what apps|which apps|solana apps|built on solana|projects on solana)\b/i;
+
 // POST /chat — Two-pass skill detection + execution
 router.post('/', x402(0.002), async (req, res) => {
   try {
@@ -75,8 +78,13 @@ router.post('/', x402(0.002), async (req, res) => {
     const pass1Response = pass1Result.content;
     console.log(`[Chat] Pass1: ${pass1Result.provider}/${pass1Result.model} (${pass1Result.complexity})`);
 
-    // Check for skill tags
-    const skillTags = parseSkillTags(pass1Response);
+    // Skip skill detection for ecosystem/dApp questions — answer from knowledge
+    const isEcosystemQuestion = ECOSYSTEM_KEYWORDS.test(message);
+    const skillTags = isEcosystemQuestion ? [] : parseSkillTags(pass1Response);
+
+    if (isEcosystemQuestion) {
+      console.log(`[Chat] Ecosystem question detected — skipping skills`);
+    }
 
     if (skillTags.length === 0) {
       // No skills needed — clean and return Pass 1 response

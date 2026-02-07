@@ -77,6 +77,8 @@ ${conversationMode}
 - When users ask about "dApps" they mean PROTOCOLS/PLATFORMS, not tokens. Never confuse dApps with trending tokens.
 
 ## SOLANA ECOSYSTEM KNOWLEDGE
+When asked about dApps, protocols, platforms, or ecosystem overview — answer from this section. Do NOT trigger any skill. This is general knowledge, not a data query.
+
 Top Solana dApps by category:
 DEX: Jupiter (#1, 60%+ volume), Raydium, Orca, Lifinity
 Liquid Staking: Jito (jitoSOL), Marinade (mSOL), BlazeStake (bSOL), Sanctum (INF)
