@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+server/node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Android build outputs
+android/
+*.apk
+*.aab
+
+# iOS
+ios/
+
+# Native
+.kotlin/
+*.orig.*
+
+# Environment files — NEVER push secrets
+.env
+server/.env
+.env*.local
+.env.production
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets & keys
+*.keystore
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+google-services.json
+
+# Logs
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# Cache
+.cache/
+.parcel-cache/
+__pycache__/
+
+# Metro
+.metro-health-check*
+
+# TypeScript
+*.tsbuildinfo
+
+# Temp
+tmp/
+temp/
+
+# Database
+*.db
+*.sqlite
+*.db-shm
+*.db-wal
+*.db-journal
