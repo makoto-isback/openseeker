@@ -1,6 +1,6 @@
 const express = require('express');
 const { buildChatPrompt, buildSkillResponsePrompt } = require('../services/prompts');
-const { callAI } = require('../services/ai');
+const { chat: aiChat } = require('../services/aiRouter');
 const { executeSkill, parseSkillTags, cleanSkillTags } = require('../services/skills');
 const { x402 } = require('../middleware/x402');
 const {
@@ -11,6 +11,35 @@ const {
 } = require('../services/memory');
 
 const router = express.Router();
+
+/**
+ * Clean AI response — remove AI-isms and filler.
+ */
+function cleanResponse(text) {
+  let cleaned = text;
+
+  // Remove "As an AI assistant" type phrases
+  cleaned = cleaned.replace(/as an ai (assistant|agent|model|language model)/gi, '');
+  cleaned = cleaned.replace(/I('m| am) (just )?an? (ai|artificial intelligence|language model)/gi, '');
+
+  // Remove filler openers
+  cleaned = cleaned.replace(/^(here'?s?|let me|okay,? |sure,? |absolutely,? |definitely,? |of course,? |great question,? )/gi, '');
+
+  // Remove "DATA:" prefix if AI accidentally left it
+  cleaned = cleaned.replace(/DATA:\s*/g, '');
+
+  // Remove excessive newlines
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+
+  cleaned = cleaned.trim();
+
+  // Capitalize first letter if needed
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  return cleaned;
+}
 
 // POST /chat — Two-pass skill detection + execution
 router.post('/', x402(0.002), async (req, res) => {
@@ -39,26 +68,34 @@ router.post('/', x402(0.002), async (req, res) => {
       soul, memory, context, wallet, message, history, agent_name,
       persistentMemory, memoryCount,
     });
-    const pass1Response = await callAI(pass1Messages);
+
+    const pass1Result = await aiChat(pass1Messages, {
+      userMessage: message,
+    });
+    const pass1Response = pass1Result.content;
+    console.log(`[Chat] Pass1: ${pass1Result.provider}/${pass1Result.model} (${pass1Result.complexity})`);
 
     // Check for skill tags
     const skillTags = parseSkillTags(pass1Response);
 
     if (skillTags.length === 0) {
-      // No skills needed — return Pass 1 response directly
-      // Log daily event async
+      // No skills needed — clean and return Pass 1 response
+      const cleaned = cleanResponse(pass1Response);
+
       if (walletAddress) {
         logDailyEvent(walletAddress, 'chat', `User: ${message.slice(0, 100)}`);
-        // Extract memories async (don't block response)
-        extractMemoriesFromChat(walletAddress, message, pass1Response).catch(console.error);
+        extractMemoriesFromChat(walletAddress, message, cleaned).catch(console.error);
       }
-      return res.json({ response: pass1Response, memory_count: memoryCount });
+      return res.json({
+        response: cleaned,
+        memory_count: memoryCount,
+        model: `${pass1Result.provider}/${pass1Result.model}`,
+      });
     }
 
     // === Execute skills ===
     const skillResults = [];
     for (const tag of skillTags) {
-      // Inject context for skills that need it
       if (tag.skill === 'portfolio_track') {
         tag.params.wallet_content = wallet || '';
       }
@@ -68,7 +105,6 @@ router.post('/', x402(0.002), async (req, res) => {
       if (tag.skill === 'park_post') {
         tag.params.park_mode = park_mode || 'listen';
       }
-      // Inject wallet for memory skills
       if (['my_memory', 'remember_this', 'forget_this', 'daily_recap', 'weekly_recap'].includes(tag.skill)) {
         tag.params.wallet_address = walletAddress;
       }
@@ -77,19 +113,27 @@ router.post('/', x402(0.002), async (req, res) => {
       skillResults.push(result);
     }
 
+    // Determine first skill for complexity routing
+    const firstSkill = skillTags[0]?.skill || '';
+
     // === Pass 2: Format results in personality ===
     const pass2Messages = buildSkillResponsePrompt({
       soul,
       originalMessage: message,
       skillResults,
+      agentName: agent_name,
     });
-    const pass2Response = await callAI(pass2Messages);
 
-    // Log daily event async
+    const pass2Result = await aiChat(pass2Messages, {
+      userMessage: message,
+      skillTag: firstSkill,
+    });
+    const pass2Response = cleanResponse(pass2Result.content);
+    console.log(`[Chat] Pass2: ${pass2Result.provider}/${pass2Result.model} (${pass2Result.complexity})`);
+
     if (walletAddress) {
       const skillNames = skillTags.map((t) => t.skill).join(', ');
       logDailyEvent(walletAddress, 'chat_skill', `Skills: ${skillNames} | User: ${message.slice(0, 80)}`);
-      // Extract memories async
       extractMemoriesFromChat(walletAddress, message, pass2Response).catch(console.error);
     }
 
@@ -97,6 +141,7 @@ router.post('/', x402(0.002), async (req, res) => {
       response: pass2Response,
       skill_results: skillResults,
       memory_count: memoryCount,
+      model: `${pass2Result.provider}/${pass2Result.model}`,
     });
   } catch (error) {
     console.error('[Chat] Error:', error.message);

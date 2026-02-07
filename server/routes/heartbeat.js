@@ -1,6 +1,6 @@
 const express = require('express');
 const { getPrices } = require('../services/priceCache');
-const { callAI } = require('../services/ai');
+const { chat: aiChat } = require('../services/aiRouter');
 const { x402 } = require('../middleware/x402');
 const { logDailyEvent } = require('../services/memory');
 
@@ -133,7 +133,8 @@ router.post('/', x402(0.002), async (req, res) => {
 
     let message = findings.join('; ');
     try {
-      message = await callAI(heartbeatPrompt);
+      const hbResult = await aiChat(heartbeatPrompt, { forceModel: 'fast' });
+      message = hbResult.content;
     } catch (error) {
       console.error('[Heartbeat] AI generation failed, using raw findings:', error.message);
     }

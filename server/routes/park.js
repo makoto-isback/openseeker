@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { x402 } = require('../middleware/x402');
-const { callAI } = require('../services/ai');
+const { chat: aiChat } = require('../services/aiRouter');
 
 /**
  * POST /park/generate
@@ -53,7 +53,8 @@ Rules:
       },
     ];
 
-    const content = await callAI(messages);
+    const aiResult = await aiChat(messages, { forceModel: 'fast' });
+    const content = aiResult.content;
 
     // Truncate to 280 chars
     const truncated = content.slice(0, 280).trim();

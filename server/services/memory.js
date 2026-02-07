@@ -15,7 +15,7 @@ const {
   getDailySummaries,
   getOrCreateUser,
 } = require('../db');
-const { callAI } = require('./ai');
+const { extractWithFastModel } = require('./aiRouter');
 
 // Memory categories
 const CATEGORIES = [
@@ -123,7 +123,7 @@ Examples of things NOT to extract:
       },
     ];
 
-    const result = await callAI(extractPrompt);
+    const result = await extractWithFastModel(extractPrompt);
 
     // Parse JSON from response
     const jsonMatch = result.match(/\[[\s\S]*\]/);
@@ -212,7 +212,7 @@ async function generateDailySummary(walletAddress) {
       },
     ];
 
-    const summary = await callAI(summaryPrompt);
+    const summary = await extractWithFastModel(summaryPrompt);
     return { summary, events_count: events.length, date: today };
   } catch (err) {
     console.error('[Memory] generateDailySummary error:', err.message);
@@ -252,7 +252,7 @@ async function generateWeeklyRecap(walletAddress) {
       },
     ];
 
-    const recap = await callAI(recapPrompt);
+    const recap = await extractWithFastModel(recapPrompt);
     return { recap, days: summaries.length, total_events: summaries.reduce((sum, d) => sum + d.event_count, 0) };
   } catch (err) {
     console.error('[Memory] generateWeeklyRecap error:', err.message);

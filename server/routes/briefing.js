@@ -1,6 +1,6 @@
 const express = require('express');
 const { getPrices } = require('../services/priceCache');
-const { callAI } = require('../services/ai');
+const { chat: aiChat } = require('../services/aiRouter');
 const { x402 } = require('../middleware/x402');
 
 const router = express.Router();
@@ -89,7 +89,8 @@ router.post('/', x402(0.005), async (req, res) => {
       { role: 'user', content: context },
     ];
 
-    const response = await callAI(messages);
+    const aiResult = await aiChat(messages, { forceModel: 'fast' });
+    const response = aiResult.content;
 
     res.json({
       type,
