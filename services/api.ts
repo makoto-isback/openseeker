@@ -38,7 +38,7 @@ export async function sendMessage(payload: ChatPayload): Promise<ChatResponse> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     },
-    15000,
+    30000,
   );
 
   if (!res.ok) {
