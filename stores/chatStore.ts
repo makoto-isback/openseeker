@@ -51,27 +51,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage: async (text: string) => {
     const { addMessage } = get();
 
-    // 1. Add user message
+    // 1. Build history BEFORE adding current message (to avoid duplication)
+    const prevMessages = get().messages;
+    const history = prevMessages
+      .slice(-12) // grab extra to account for filtering
+      .filter((m) => {
+        // Skip empty messages
+        if (!m.content || m.content.trim().length === 0) return false;
+        // Skip very long messages (likely JSON/data dumps)
+        if (m.content.length > 2000) return false;
+        // Skip messages that look like JSON blobs
+        const trimmed = m.content.trim();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) return false;
+        // Skip error messages
+        if (trimmed.startsWith('Something went wrong') || trimmed.startsWith('Request timed out')) return false;
+        return true;
+      })
+      .slice(-10) // final cap at 10
+      .map((m) => ({
+        role: m.role,
+        content: m.content.substring(0, 1000), // truncate to save tokens
+      }));
+
+    // 2. Add user message to store
     await addMessage('user', text);
 
-    // 2. Set loading state
+    // 3. Set loading state
     set({ isLoading: true, isSending: true });
 
     try {
-      // 3. Gather context from memory store
+      // 4. Gather context from memory store
       const memStore = useMemoryStore.getState();
       const { soul, userMemory, wallet } = memStore;
       const { getContext } = await import('../services/memory');
       const context = await getContext();
 
-      // 4. Get last 10 messages for conversation history
-      const allMessages = get().messages;
-      const history = allMessages.slice(-10).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      // 5. Call API with agent name and park context
+      // 5. Call API with agent name, park context, and filtered history
       const { agentName, parkMode } = useSettingsStore.getState();
       let parkContext = '';
       try {
