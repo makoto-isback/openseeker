@@ -119,27 +119,26 @@ async function callGroq(messages, maxTokens = 1024) {
   const client = getGroq();
   if (!client) throw new Error('Groq not configured');
 
-  const models = [MODELS.fast.model, MODELS.fast.fallback];
-  for (const model of models) {
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      try {
-        const response = await client.chat.completions.create({
-          model, messages, max_tokens: maxTokens, temperature: 0.7,
-        });
-        if (model !== MODELS.fast.model) console.log(`[AIRouter] Groq used fallback: ${model}`);
-        return { content: response.choices[0]?.message?.content || '', model, provider: 'groq' };
-      } catch (error) {
-        const isDailyLimit = error.message?.includes('tokens per day') || error.message?.includes('TPD');
-        if (isDailyLimit) { console.warn(`[AIRouter] Groq daily limit on ${model}`); break; }
-
-        const isRateLimit = error.status === 429 || error.message?.includes('rate');
-        if (isRateLimit && attempt < 2) {
-          await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-          continue;
-        }
-        if (model === MODELS.fast.model) { break; } // try fallback model
-        throw error;
+  const model = MODELS.fast.model;
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      const response = await client.chat.completions.create({
+        model, messages, max_tokens: maxTokens, temperature: 0.7,
+      });
+      return { content: response.choices[0]?.message?.content || '', model, provider: 'groq' };
+    } catch (error) {
+      const isDailyLimit = error.message?.includes('tokens per day') || error.message?.includes('TPD');
+      if (isDailyLimit) {
+        console.warn(`[AIRouter] Groq daily limit on ${model} — skipping 8b, falling through to next provider`);
+        throw new Error('Groq TPD exhausted');
       }
+
+      const isRateLimit = error.status === 429 || error.message?.includes('rate');
+      if (isRateLimit && attempt < 2) {
+        await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
+        continue;
+      }
+      throw error;
     }
   }
   throw new Error('Groq unavailable');
