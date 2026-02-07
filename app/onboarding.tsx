@@ -23,11 +23,12 @@ import { router } from 'expo-router';
 import { usePrivy, useLoginWithOAuth, useLoginWithEmail, useEmbeddedSolanaWallet } from '@privy-io/expo';
 import { useWalletStore } from '../stores/walletStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { RiskConsentScreen } from '../components/RiskConsentScreen';
 import { colors, spacing, fontSize, borderRadius } from '../constants/theme';
 
 const monoFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
 
-type Screen = 'main' | 'create' | 'import-seed' | 'import-key' | 'email-login' | 'name-agent' | 'domain-upsell';
+type Screen = 'main' | 'create' | 'import-seed' | 'import-key' | 'email-login' | 'name-agent' | 'risk-consent' | 'domain-upsell';
 
 export default function OnboardingScreen({ onComplete }: { onComplete?: () => void }) {
   const [screen, setScreen] = useState<Screen>('main');
@@ -393,7 +394,7 @@ export default function OnboardingScreen({ onComplete }: { onComplete?: () => vo
       }
       setNameError('');
       useSettingsStore.getState().setAgentName(name);
-      setScreen('domain-upsell');
+      setScreen('risk-consent');
     };
 
     return (
@@ -425,6 +426,16 @@ export default function OnboardingScreen({ onComplete }: { onComplete?: () => vo
           </TouchableOpacity>
         </View>
       </View>
+    );
+  }
+
+  // Risk consent screen
+  if (screen === 'risk-consent') {
+    return (
+      <RiskConsentScreen
+        onAccept={() => setScreen('domain-upsell')}
+        onSkip={() => setScreen('domain-upsell')}
+      />
     );
   }
 

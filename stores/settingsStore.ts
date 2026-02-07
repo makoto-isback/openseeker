@@ -21,6 +21,11 @@ interface SettingsState {
   parkBudgetDaily: number;
   parkSpentToday: number;
   parkTopics: string[];
+  // Risk consent (OpenClaw-style)
+  riskAccepted: boolean;
+  riskAcceptedAt: string | null;
+  acceptRisk: () => void;
+  loadRiskConsent: () => Promise<void>;
   // Domain identity
   osDomain: string | null;
   isVerified: boolean;
@@ -70,6 +75,23 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   parkBudgetDaily: 0.05,
   parkSpentToday: 0,
   parkTopics: ['memecoins', 'defi', 'trending'],
+  // Risk consent
+  riskAccepted: false,
+  riskAcceptedAt: null,
+  acceptRisk: () => {
+    const ts = new Date().toISOString();
+    set({ riskAccepted: true, riskAcceptedAt: ts });
+    AsyncStorage.setItem('@openseeker/risk_consent', JSON.stringify({ accepted: true, acceptedAt: ts })).catch(console.error);
+  },
+  loadRiskConsent: async () => {
+    try {
+      const raw = await AsyncStorage.getItem('@openseeker/risk_consent');
+      if (raw) {
+        const { accepted, acceptedAt } = JSON.parse(raw);
+        set({ riskAccepted: !!accepted, riskAcceptedAt: acceptedAt || null });
+      }
+    } catch {}
+  },
   // Domain identity
   osDomain: null,
   isVerified: false,
@@ -122,11 +144,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       if (name) set({ agentName: name });
       const id = await AsyncStorage.getItem('@openseeker/agent_id');
       if (id) set({ agentId: id });
-      // Also load domain info
+      // Load domain info
       const raw = await AsyncStorage.getItem('@openseeker/os_domain');
       if (raw) {
         const { domain, tier, expiresAt } = JSON.parse(raw);
         set({ osDomain: domain, isVerified: true, domainTier: tier, domainExpiresAt: expiresAt });
+      }
+      // Load risk consent
+      const consent = await AsyncStorage.getItem('@openseeker/risk_consent');
+      if (consent) {
+        const { accepted, acceptedAt } = JSON.parse(consent);
+        set({ riskAccepted: !!accepted, riskAcceptedAt: acceptedAt || null });
       }
     } catch {}
   },

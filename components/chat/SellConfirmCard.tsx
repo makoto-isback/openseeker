@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { TransactionCard } from './TransactionCard';
 import { executeSwap, type SwapResult } from '../../services/swap';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface SellConfirmCardProps {
   data: {
@@ -29,6 +30,7 @@ function formatNum(n: number): string {
 export function SellConfirmCard({ data }: SellConfirmCardProps) {
   const [state, setState] = useState<'idle' | 'confirming' | 'cancelled'>('idle');
   const [result, setResult] = useState<SwapResult | null>(null);
+  const riskAccepted = useSettingsStore((s) => s.riskAccepted);
 
   const isEmergency = data.action === 'go_stablecoin';
   const isRotate = data.action === 'rotate_token';
@@ -49,6 +51,13 @@ export function SellConfirmCard({ data }: SellConfirmCardProps) {
       setState('idle');
     }
   };
+
+  // Auto-execute when risk consent accepted
+  useEffect(() => {
+    if (riskAccepted && state === 'idle' && !result) {
+      handleConfirm();
+    }
+  }, []);
 
   if (result) {
     return (

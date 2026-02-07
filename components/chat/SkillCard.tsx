@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { TransactionCard } from './TransactionCard';
 import { executeSwap, type SwapResult } from '../../services/swap';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { OrderCreatedCard, ViewOrdersCard, CancelOrderCard } from './OrderCard';
 import { DefiYieldCard } from './DefiYieldCard';
 import { TrendingTokensCard } from './TrendingTokensCard';
@@ -147,6 +148,7 @@ function PortfolioCard({ data }: { data: any }) {
 function SwapCard({ data }: { data: any }) {
   const [state, setState] = useState<'idle' | 'confirming' | 'cancelled'>('idle');
   const [result, setResult] = useState<SwapResult | null>(null);
+  const riskAccepted = useSettingsStore((s) => s.riskAccepted);
 
   const handleConfirm = async () => {
     setState('confirming');
@@ -157,6 +159,13 @@ function SwapCard({ data }: { data: any }) {
       setState('idle');
     }
   };
+
+  // Auto-execute when risk consent accepted
+  useEffect(() => {
+    if (riskAccepted && state === 'idle' && !result) {
+      handleConfirm();
+    }
+  }, []);
 
   if (result) {
     return (
@@ -317,6 +326,7 @@ function DCACard({ data }: { data: any }) {
 function LiquidStakeCard({ data }: { data: any }) {
   const [state, setState] = useState<'idle' | 'confirming' | 'cancelled'>('idle');
   const [result, setResult] = useState<SwapResult | null>(null);
+  const riskAccepted = useSettingsStore((s) => s.riskAccepted);
 
   const handleConfirm = async () => {
     setState('confirming');
@@ -327,6 +337,13 @@ function LiquidStakeCard({ data }: { data: any }) {
       setState('idle');
     }
   };
+
+  // Auto-execute when risk consent accepted
+  useEffect(() => {
+    if (riskAccepted && state === 'idle' && !result) {
+      handleConfirm();
+    }
+  }, []);
 
   if (result) {
     return (

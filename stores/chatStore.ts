@@ -110,10 +110,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         park_mode: parkMode,
       });
 
-      // 6. Add AI response with skill results
+      // 6. Gate trade skills behind risk consent
+      const TRADE_SKILLS = new Set([
+        'swap_quote', 'limit_buy', 'limit_sell', 'stop_loss', 'dca_setup',
+        'send_token', 'sell_token', 'rotate_token', 'go_stablecoin', 'liquid_stake',
+      ]);
+      const { riskAccepted } = useSettingsStore.getState();
+      if (!riskAccepted && result.skill_results?.some((sr: any) => TRADE_SKILLS.has(sr.skill))) {
+        // Filter out trade skills, keep data-only results
+        const safeResults = result.skill_results.filter((sr: any) => !TRADE_SKILLS.has(sr.skill));
+        const gateMsg = safeResults.length > 0
+          ? result.response + '\n\nTo enable trading, accept the Agent Wallet Agreement in Settings.'
+          : 'To enable trading features (swap, send, DCA, orders), you need to accept the Agent Wallet Agreement first. Go to Settings or restart onboarding to accept.';
+        await addMessage('assistant', gateMsg, safeResults.length > 0 ? safeResults : undefined);
+        set({ messageCount: get().messageCount + 2 });
+        processResponse(text, gateMsg).catch(console.error);
+        addXP(1).catch(console.error);
+        return;
+      }
+
+      // 7. Add AI response with skill results
       await addMessage('assistant', result.response, result.skill_results);
 
-      // 7. Handle skill side-effects (e.g. save price alerts)
+      // 8. Handle skill side-effects (e.g. save price alerts)
       if (result.skill_results) {
         for (const sr of result.skill_results) {
           if (sr.success && sr.skill === 'price_alert' && sr.data?.alert) {
@@ -170,7 +189,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
-      // 8. Run memory engine + XP
+      // 9. Run memory engine + XP
       set({ messageCount: get().messageCount + 2 });
       console.log('[CHAT_STORE] Running processResponse for memory extraction...');
       console.log(`[CHAT_STORE] User message: "${text.slice(0, 80)}..."`);

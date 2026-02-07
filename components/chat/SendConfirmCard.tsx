@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { TransactionCard } from './TransactionCard';
 import { sendSOL, type SendResult } from '../../services/transfer';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface SendConfirmCardProps {
   data: {
@@ -20,6 +21,7 @@ export function SendConfirmCard({ data }: SendConfirmCardProps) {
   const [state, setState] = useState<'idle' | 'confirming' | 'cancelled'>('idle');
   const [result, setResult] = useState<SendResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const riskAccepted = useSettingsStore((s) => s.riskAccepted);
 
   const { send } = data;
 
@@ -34,6 +36,13 @@ export function SendConfirmCard({ data }: SendConfirmCardProps) {
       setState('idle');
     }
   };
+
+  // Auto-execute when risk consent accepted
+  useEffect(() => {
+    if (riskAccepted && state === 'idle' && !result) {
+      handleConfirm();
+    }
+  }, []);
 
   if (result) {
     return (
