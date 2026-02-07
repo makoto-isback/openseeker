@@ -12,6 +12,7 @@ import { SellConfirmCard } from './SellConfirmCard';
 import { WhaleTrackCard } from './WhaleTrackCard';
 import { NewTokensCard } from './NewTokensCard';
 import { DomainClaimCard } from './DomainClaimCard';
+import { MemoryCard } from './MemoryCard';
 
 interface SkillCardProps {
   skill: string;
@@ -88,6 +89,12 @@ export function SkillCard({ skill, success, data, error }: SkillCardProps) {
       return <DomainClaimCard data={data} skill="claim_domain" />;
     case 'lookup_domain':
       return <DomainClaimCard data={data} skill="lookup_domain" />;
+    case 'my_memory':
+    case 'remember_this':
+    case 'forget_this':
+    case 'daily_recap':
+    case 'weekly_recap':
+      return <MemoryCard data={data} skill={skill} />;
     default:
       return null;
   }

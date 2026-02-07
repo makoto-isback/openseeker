@@ -17,6 +17,7 @@ OpenSeeker is a crypto-native AI companion app for the Solana Seeker phone. Buil
 - **Gamification**: XP/Level system with achievements
 - **Wallet**: Embedded wallet (expo-secure-store + @scure/bip39 + @noble/hashes + tweetnacl) OR Privy wallet (Google/Email login)
 - **Auth (optional)**: Privy SDK (@privy-io/expo) — Google OAuth + Email OTP login with auto-created Solana embedded wallet
+- **Persistent Memory**: SQLite-based agent brain — auto-extracts facts from chat, daily logging, weekly recaps
 
 ## Project Structure
 ```
@@ -43,7 +44,8 @@ openseeker/
 │   ├── SellConfirmCard.tsx  # Sell/rotate/emergency exit confirm card with swap quote
 │   ├── WhaleTrackCard.tsx   # Whale tracking card (track/activity/stop states)
 │   ├── NewTokensCard.tsx    # New token scanner card with age, safety scores, risk disclaimer
-│   └── DomainClaimCard.tsx  # .os domain claim/lookup card (tier badge, price, benefits, claim button)
+│   ├── DomainClaimCard.tsx  # .os domain claim/lookup card (tier badge, price, benefits, claim button)
+│   └── MemoryCard.tsx       # Memory skill cards (show, remember, forget, daily/weekly recap)
 ├── components/park/
 │   ├── AgentCard.tsx        # Your agent profile card (avatar, name, level, XP bar, stats)
 │   ├── LeaderboardRow.tsx   # Rank + avatar + name + level + win rate (compact row)
@@ -106,7 +108,8 @@ openseeker/
 │   │   ├── swap.js          # POST /swap/swap-quote + /swap/swap-execute (x402: $0.003/$0.005)
 │   │   ├── park.js          # POST /park/generate — AI-generated park posts (x402: $0.005)
 │   │   ├── whale.js         # Whale tracking routes (POST /watch, GET /watched, DELETE /watch/:wallet, GET /activity/:wallet, GET /feed)
-│   │   └── domains.js       # .os domain routes (check, price, register, my, lookup, leaderboard, stats)
+│   │   ├── domains.js       # .os domain routes (check, price, register, my, lookup, leaderboard, stats)
+│   │   └── memory.js        # Persistent memory routes (get, save, forget, daily, recap)
 │   │   ├── defi.js          # GET /api/defi/yields — DeFiLlama Solana pools with categorization (free)
 │   │   └── tokens.js        # GET /api/tokens/trending + /api/tokens/research/:address — DexScreener (free)
 │   ├── utils/
@@ -125,6 +128,7 @@ openseeker/
 │       ├── tokenResearch.js # Token safety analysis (CoinGecko + heuristics)
 │       ├── news.js          # CoinGecko trending + mock news fallback
 │       ├── walletParser.js  # Server-side wallet markdown parser
+│       └── memory.js        # Persistent agent memory service (SQLite-backed)
 │       └── solana.js        # On-chain payment verification (domain registration)
 ├── app.json
 ├── index.js                 # Entry point — polyfills (fast-text-encoding, @ethersproject/shims) before expo-router
@@ -172,6 +176,17 @@ openseeker/
 - `GET /api/domains/lookup/:domain` — reverse lookup: domain → wallet (free)
 - `GET /api/domains/leaderboard` — top verified agents (free)
 - `GET /api/domains/stats` — domain registration stats & revenue (free)
+- `GET /api/memory/:wallet` — get all persistent memories for a wallet (free, `?category=trading`)
+- `POST /api/memory/save` — `{ wallet, content, category?, source? }` → save a memory fact (free)
+- `DELETE /api/memory/:wallet/:id` — delete a specific memory (free)
+- `POST /api/memory/forget` — `{ wallet, search_term }` → forget memories matching search (free)
+- `GET /api/memory/daily/:wallet` — get today's daily log (free)
+- `POST /api/memory/daily/event` — `{ wallet, event_type, content }` → log a daily event (free)
+- `GET /api/memory/daily/recent/:wallet` — get recent daily logs (free)
+- `GET /api/memory/summary/:wallet` — AI-generated daily summary (free)
+- `GET /api/memory/recap/:wallet` — AI-generated weekly recap (free)
+- `GET /api/memory/prompt/:wallet` — formatted memory string for AI prompt (free)
+- `GET /api/memory/credits/:wallet` — credit balance info (free)
 
 ## Architecture Conventions
 - **Entry point**: `expo-router/entry` (set in package.json `main`)
@@ -195,13 +210,14 @@ openseeker/
 - **Server AI**: Groq client lazily initialized to avoid crash when no API key. Model: `llama-3.3-70b-versatile`.
 - **Two-pass skill system**: Pass 1 detects intent via `[SKILL:name:params]` tags in AI response. Skills execute. Pass 2 formats results in personality.
 - **Skill tag format**: `[SKILL:skill_name:param1=value1,param2=value2]`. Parsed by `parseSkillTags()` in `skills.js`.
-- **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain.
+- **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain, my_memory, remember_this, forget_this, daily_recap, weekly_recap.
 - **Park skills**: `park_digest` summarizes recent park messages (client sends park_context). `park_consensus` aggregates agent opinions on a token weighted by reputation. `park_post` posts to park (requires parkMode === 'active'). Park context injected in chat route like wallet_content.
 - **Reputation system**: `services/reputation.ts` — `getReputationTier(score)` (Newbie/Regular/Trusted/Elite), `calculateConsensus(messages)` weights sentiment by agent reputation + confidence. Schema ready for post-hackathon 24h verification.
 - **Agent Park settings**: `settingsStore.ts` has agentName, agentId, parkMode ('off'|'listen'|'active'), parkBudgetDaily ($0.05), parkSpentToday, parkTopics. Settings UI section with mode selector, budget, topic toggles.
 - **Domain identity**: `settingsStore.ts` has osDomain, isVerified, domainTier, domainExpiresAt. Persisted in AsyncStorage `@openseeker/os_domain`. Loaded during `loadAgentName()`. `VerifiedBadge` component shows tier-based badges (OG: gold crown, Premium: purple gem, Standard: blue check). Integrated in chat header, park messages, leaderboard, agent cards, settings.
 - **Skill results**: Returned as `skill_results` array alongside `response`. Each has `{ skill, success, data?, error? }`.
 - **Skill cards**: `SkillCard.tsx` renders rich UI cards for each skill type (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking, domain). `OrderCard.tsx` handles limit_buy/sell, stop_loss, view_orders, cancel_order. `SendConfirmCard.tsx` handles send_token. `SellConfirmCard.tsx` handles sell_token, rotate_token, go_stablecoin. `WhaleTrackCard.tsx` handles whale_track/activity/stop. `NewTokensCard.tsx` handles new_tokens. `DomainClaimCard.tsx` handles claim_domain/lookup_domain.
+- **Persistent Memory**: SQLite-based agent brain (`server/services/memory.js`). Auto-extracts facts from chat via AI (async, non-blocking). Categories: preference, portfolio, trading, personal, strategy, general. Max 100 memories per wallet. Daily event logging with AI-generated summaries. Memory injected into chat system prompt as "PERSISTENT BRAIN" section. 5 memory skills: my_memory, remember_this, forget_this, daily_recap, weekly_recap. Heartbeat logs portfolio events to daily log. Chat route reads X-Wallet header to identify wallet for memory operations.
 - **CoinGecko**: 60s in-memory cache (extends to 5min on 429 rate limit). Symbol→ID mapping in `coingecko.js`. Mock fallback on API failure.
 - **Jupiter**: Swap quotes + swap transactions via `api.jup.ag/swap/v1`. Falls back to mock rates/transactions when API unavailable.
 
@@ -270,6 +286,9 @@ openseeker/
 - send_token resolves .os domain names to wallet addresses via `/api/domains/lookup/`. The `osDomain` field in skill result indicates a domain was resolved.
 - Onboarding flow now: wallet creation → agent naming → .os domain upsell → main app. Users can skip domain claim and do it later via chat.
 - Groq free tier: 100k tokens/day (TPD) limit on `llama-3.3-70b-versatile`. `ai.js` auto-falls back to `llama-3.1-8b-instant` on TPD exhaustion or rate limits. Fallback model has lower quality but keeps the app functional.
+- Persistent memory uses X-Wallet header from paidFetch to identify wallet address for memory operations. Memory extraction runs async after each chat response (non-blocking). Max 100 memories per wallet. Memory tables are in the same SQLite DB as credit system (server/openseeker.db).
+- Memory extraction AI call uses separate Groq request — counts against TPD. If extraction fails, chat still works (extraction is fire-and-forget).
+- Daily log events accumulate without limit — consider periodic cleanup for production.
 
 ## Day Progress
 - **Day 1**: Foundation — scaffolding, screens, stores, server, memory system
@@ -286,7 +305,9 @@ openseeker/
 - **Day 12**: Advanced Skills — 10 new skills bringing total to 29. New Token Scanner (DexScreener latest profiles, safety scoring, age tracking). Send SOL/Tokens (services/transfer.ts, SystemProgram.transfer, confirm/cancel UI). Sell/Rotate/Emergency Exit (sell_token, rotate_token, go_stablecoin — all via Jupiter swap with confirm UI). Smart Price Alerts (view_alerts, cancel_alert — client-side alert CRUD). Whale Copy Trade (whale_track, whale_activity, whale_stop — AsyncStorage watched wallets, server /api/whale routes with Helius API + mock fallback). 4 new UI cards: SendConfirmCard, SellConfirmCard, WhaleTrackCard, NewTokensCard. Watched Wallets section in Settings. Extended /api/tokens with /new endpoint. Updated prompts.js with all new skill tags and rules.
 - **Day 13**: Full Audit + Bug Fixes — End-to-end testing of all 17 server endpoints and all 29 skills via /chat. Fixed: AI fallback model (llama-3.1-8b-instant) for Groq rate limit/TPD exhaustion in ai.js. Fixed whale_activity skill crash (missing `label` parameter destructuring). Added 4 missing SkillCard cases (news_digest, park_digest, park_consensus, park_post). Added order creation field validation in chatStore.ts. Added swap_quote parameter validation in skills.js. TypeScript 0 errors. Jupiter referral verified on all swap paths. Settings audit: all 14 sections present.
 - **Day 14**: .os Domain Identity System — Full domain name system for AI agents. Tiered pricing: OG (1-2 chars, 2 SOL), Premium (3-4 chars, 0.5 SOL), Standard (5+ chars, 0.1 SOL). 7 new server endpoints (check, price, register, my, lookup, leaderboard, stats) at /api/domains/. On-chain SOL payment verification (server/services/solana.js) with replay attack protection. Domain config with reserved names (server/config/domains.js). Client-side domain service (services/domainService.ts). VerifiedBadge component with 3 tiers (OG gold crown, Premium purple gem, Standard blue check). Badge integrated in: chat header, Agent Park messages, leaderboard rows, agent cards, settings. 2 new skills: claim_domain, lookup_domain (total: 31). DomainClaimCard UI for chat. Onboarding .os upsell screen after agent naming. send_token resolves .os domains to wallet addresses. Settings domain identity section. Demo seed data includes verified agents. Supabase queries include domain fields. SQL migration for agent_profiles (os_domain, domain_tier, is_verified, etc.) + domain_registrations table. In-memory fallback for dev/demo. TypeScript 0 errors.
-- **Day 15**: Emulator Testing — Full end-to-end testing on Android emulator (Pixel device, API 35). APK built (67MB), installed, and tested every screen and flow. Cold start ~3s. Onboarding flow verified: wallet creation (mnemonic generation + 12-word display), agent naming (default "DegenCat"), .os domain upsell (skip works). Chat tab verified: AI responses, memory engine, skill cards, quick action chips, FAB button, level badge, connection status indicator. All 31 skills tested via server API — all returning correct data (CoinGecko live prices, DexScreener trending/research, DeFiLlama yields, Jupiter swap quotes). Portfolio/Skills/Settings tabs all render without errors. Settings has all 14 sections: SOUL.md, Memory, Wallet, Daily Log, Clear/Reset, Gamification (XP/levels), Domain Identity, Agent Park (mode selector, topics), Deposit SOL (presets + custom), Test Credits, Active Orders, Watched Wallets, Price Alerts, Advanced (Server URL, x402 mode). 402 error handling verified — shows user-friendly "Insufficient credits" message. Zero JS errors, zero warnings (session), zero ANR, zero native crashes, zero TypeScript errors. **VERDICT: READY FOR DEMO.**
+- **Day 15**: Emulator Testing + GitHub Push + Railway Deploy — Full end-to-end testing on Android emulator. Production APK built pointing to Railway server (https://openseeker-production.up.railway.app). GitHub repo live at https://github.com/makoto-isback/openseeker. Server deployed on Railway.
+- **Day 16**: Persistent Agent Memory System — OpenClaw-style brain for the AI agent. SQLite-backed persistent memory with auto-extraction from chat. 2 new DB tables: agent_memory (facts about user, categorized, with confidence scores) and agent_daily_log (event logging per day). Server-side memory service (server/services/memory.js) with AI-powered fact extraction, daily summaries, weekly recaps. 12 new API endpoints at /api/memory/. Memory injected into chat system prompt as "PERSISTENT BRAIN" section — AI naturally references stored facts. Heartbeat logs portfolio events. 5 new skills: my_memory (show stored memories), remember_this (explicit save), forget_this (delete by search), daily_recap (AI summary of today), weekly_recap (7-day summary). MemoryCard.tsx component with 5 card variants. Total skills: 36. TypeScript 0 errors. All endpoints tested and working.
+- **Day 15 (original)**: Emulator Testing — Full end-to-end testing on Android emulator (Pixel device, API 35). APK built (67MB), installed, and tested every screen and flow. Cold start ~3s. Onboarding flow verified: wallet creation (mnemonic generation + 12-word display), agent naming (default "DegenCat"), .os domain upsell (skip works). Chat tab verified: AI responses, memory engine, skill cards, quick action chips, FAB button, level badge, connection status indicator. All 31 skills tested via server API — all returning correct data (CoinGecko live prices, DexScreener trending/research, DeFiLlama yields, Jupiter swap quotes). Portfolio/Skills/Settings tabs all render without errors. Settings has all 14 sections: SOUL.md, Memory, Wallet, Daily Log, Clear/Reset, Gamification (XP/levels), Domain Identity, Agent Park (mode selector, topics), Deposit SOL (presets + custom), Test Credits, Active Orders, Watched Wallets, Price Alerts, Advanced (Server URL, x402 mode). 402 error handling verified — shows user-friendly "Insufficient credits" message. Zero JS errors, zero warnings (session), zero ANR, zero native crashes, zero TypeScript errors. **VERDICT: READY FOR DEMO.**
 
 ## Emulator Test Results (Day 15)
 ```

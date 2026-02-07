@@ -3,6 +3,12 @@ const { buildChatPrompt, buildSkillResponsePrompt } = require('../services/promp
 const { callAI } = require('../services/ai');
 const { executeSkill, parseSkillTags, cleanSkillTags } = require('../services/skills');
 const { x402 } = require('../middleware/x402');
+const {
+  formatMemoryForPrompt,
+  extractMemoriesFromChat,
+  logDailyEvent,
+  getMemoryCount,
+} = require('../services/memory');
 
 const router = express.Router();
 
@@ -15,8 +21,24 @@ router.post('/', x402(0.002), async (req, res) => {
       return res.status(400).json({ error: 'message is required' });
     }
 
+    // Load persistent memory from server DB
+    const walletAddress = req.headers['x-wallet'] || '';
+    let persistentMemory = '';
+    let memoryCount = 0;
+    if (walletAddress) {
+      try {
+        persistentMemory = formatMemoryForPrompt(walletAddress);
+        memoryCount = getMemoryCount(walletAddress);
+      } catch (err) {
+        console.warn('[Chat] Failed to load persistent memory:', err.message);
+      }
+    }
+
     // === Pass 1: Intent detection ===
-    const pass1Messages = buildChatPrompt({ soul, memory, context, wallet, message, history, agent_name });
+    const pass1Messages = buildChatPrompt({
+      soul, memory, context, wallet, message, history, agent_name,
+      persistentMemory, memoryCount,
+    });
     const pass1Response = await callAI(pass1Messages);
 
     // Check for skill tags
@@ -24,7 +46,13 @@ router.post('/', x402(0.002), async (req, res) => {
 
     if (skillTags.length === 0) {
       // No skills needed — return Pass 1 response directly
-      return res.json({ response: pass1Response });
+      // Log daily event async
+      if (walletAddress) {
+        logDailyEvent(walletAddress, 'chat', `User: ${message.slice(0, 100)}`);
+        // Extract memories async (don't block response)
+        extractMemoriesFromChat(walletAddress, message, pass1Response).catch(console.error);
+      }
+      return res.json({ response: pass1Response, memory_count: memoryCount });
     }
 
     // === Execute skills ===
@@ -40,8 +68,10 @@ router.post('/', x402(0.002), async (req, res) => {
       if (tag.skill === 'park_post') {
         tag.params.park_mode = park_mode || 'listen';
       }
-      // Inject wallet content for sell/rotate/go_stablecoin (they need quote context)
-      // No extra injection needed — these skills use their own params
+      // Inject wallet for memory skills
+      if (['my_memory', 'remember_this', 'forget_this', 'daily_recap', 'weekly_recap'].includes(tag.skill)) {
+        tag.params.wallet_address = walletAddress;
+      }
 
       const result = await executeSkill(tag.skill, tag.params);
       skillResults.push(result);
@@ -55,9 +85,18 @@ router.post('/', x402(0.002), async (req, res) => {
     });
     const pass2Response = await callAI(pass2Messages);
 
+    // Log daily event async
+    if (walletAddress) {
+      const skillNames = skillTags.map((t) => t.skill).join(', ');
+      logDailyEvent(walletAddress, 'chat_skill', `Skills: ${skillNames} | User: ${message.slice(0, 80)}`);
+      // Extract memories async
+      extractMemoriesFromChat(walletAddress, message, pass2Response).catch(console.error);
+    }
+
     res.json({
       response: pass2Response,
       skill_results: skillResults,
+      memory_count: memoryCount,
     });
   } catch (error) {
     console.error('[Chat] Error:', error.message);

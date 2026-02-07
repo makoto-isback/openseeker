@@ -857,6 +857,115 @@ const skills = {
     }
   },
 
+  // === MEMORY SKILLS ===
+
+  my_memory: async ({ wallet_address, category }) => {
+    if (!wallet_address) {
+      return { memories: [], total: 0, message: 'No wallet connected — cannot access persistent memory.' };
+    }
+    const { getAgentMemory, getMemoryCount } = require('./memory');
+    const memories = getAgentMemory(wallet_address, category || null);
+    const count = getMemoryCount(wallet_address);
+
+    // Group by category
+    const grouped = {};
+    for (const mem of memories) {
+      if (!grouped[mem.category]) grouped[mem.category] = [];
+      grouped[mem.category].push({
+        id: mem.id,
+        content: mem.content,
+        confidence: mem.confidence,
+        source: mem.source,
+        created_at: mem.created_at,
+      });
+    }
+
+    return {
+      action: 'show_memory',
+      memories: grouped,
+      total: count,
+      categories: Object.keys(grouped),
+    };
+  },
+
+  remember_this: async ({ fact, wallet_address, category }) => {
+    if (!wallet_address) {
+      return { action: 'remember_error', error: 'No wallet connected — cannot save to persistent memory.' };
+    }
+    if (!fact) throw new Error('fact param required (e.g. "user prefers low-risk DeFi")');
+
+    const { saveMemoryFact, CATEGORIES } = require('./memory');
+    const cat = CATEGORIES.includes(category) ? category : 'general';
+    const result = saveMemoryFact(wallet_address, fact, cat, 'user_explicit', 1.0);
+
+    if (result.success) {
+      return {
+        action: 'memory_saved',
+        fact,
+        category: cat,
+        message: `Saved to my brain: "${fact}"`,
+      };
+    }
+    return { action: 'memory_error', error: result.error || 'Failed to save memory' };
+  },
+
+  forget_this: async ({ search, wallet_address }) => {
+    if (!wallet_address) {
+      return { action: 'forget_error', error: 'No wallet connected.' };
+    }
+    if (!search) throw new Error('search param required (e.g. "risk tolerance")');
+
+    const { forgetMemoryByContent } = require('./memory');
+    const result = forgetMemoryByContent(wallet_address, search);
+
+    return {
+      action: 'memory_forgotten',
+      search_term: search,
+      deleted_count: result.deleted || 0,
+      message: result.deleted > 0
+        ? `Forgot ${result.deleted} memory(s) matching "${search}"`
+        : `No memories found matching "${search}"`,
+    };
+  },
+
+  daily_recap: async ({ wallet_address }) => {
+    if (!wallet_address) {
+      return { action: 'recap_error', error: 'No wallet connected.' };
+    }
+
+    const { generateDailySummary, getTodayLog } = require('./memory');
+    const events = getTodayLog(wallet_address);
+    const summary = await generateDailySummary(wallet_address);
+
+    return {
+      action: 'daily_recap',
+      date: new Date().toISOString().split('T')[0],
+      events_count: events.length,
+      events: events.slice(-20).map((e) => ({
+        type: e.event_type,
+        content: e.content,
+        time: e.created_at,
+      })),
+      summary: summary.summary,
+    };
+  },
+
+  weekly_recap: async ({ wallet_address }) => {
+    if (!wallet_address) {
+      return { action: 'recap_error', error: 'No wallet connected.' };
+    }
+
+    const { generateWeeklyRecap } = require('./memory');
+    const recap = await generateWeeklyRecap(wallet_address);
+
+    return {
+      action: 'weekly_recap',
+      recap: recap.recap,
+      days_active: recap.days,
+      total_events: recap.total_events || 0,
+    };
+  },
+
   liquid_stake: async ({ token, amount }) => {
     const tokenKey = (token || 'JITOSOL').toUpperCase();
     const lstInfo = LIQUID_STAKING_TOKENS[tokenKey] || LIQUID_STAKING_TOKENS.JITOSOL;

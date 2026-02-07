@@ -48,11 +48,37 @@ db.exec(`
     FOREIGN KEY (wallet_address) REFERENCES users(wallet_address)
   );
 
+  -- Agent memory table: persistent facts about the user
+  CREATE TABLE IF NOT EXISTS agent_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_address TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    content TEXT NOT NULL,
+    source TEXT DEFAULT 'chat',
+    confidence REAL DEFAULT 0.8,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Agent daily log: daily events and summaries
+  CREATE TABLE IF NOT EXISTS agent_daily_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_address TEXT NOT NULL,
+    date TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'event',
+    content TEXT NOT NULL,
+    metadata TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   -- Create indexes for faster queries
   CREATE INDEX IF NOT EXISTS idx_deposits_wallet ON deposits(wallet_address);
   CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
   CREATE INDEX IF NOT EXISTS idx_spend_log_wallet ON spend_log(wallet_address);
   CREATE INDEX IF NOT EXISTS idx_spend_log_created ON spend_log(created_at);
+  CREATE INDEX IF NOT EXISTS idx_agent_memory_wallet ON agent_memory(wallet_address);
+  CREATE INDEX IF NOT EXISTS idx_agent_memory_category ON agent_memory(wallet_address, category);
+  CREATE INDEX IF NOT EXISTS idx_agent_daily_log_wallet ON agent_daily_log(wallet_address, date);
 `);
 
 console.log('[DB] Tables created/verified');
@@ -95,6 +121,55 @@ const statements = {
       COUNT(*) as count
     FROM spend_log
     WHERE wallet_address = ? AND created_at >= ?
+  `),
+
+  // Agent memory
+  getMemories: db.prepare(`
+    SELECT * FROM agent_memory
+    WHERE wallet_address = ?
+    ORDER BY updated_at DESC
+  `),
+  getMemoriesByCategory: db.prepare(`
+    SELECT * FROM agent_memory
+    WHERE wallet_address = ? AND category = ?
+    ORDER BY updated_at DESC
+  `),
+  insertMemory: db.prepare(`
+    INSERT INTO agent_memory (wallet_address, category, content, source, confidence)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+  deleteMemory: db.prepare(`
+    DELETE FROM agent_memory WHERE id = ? AND wallet_address = ?
+  `),
+  deleteMemoryByContent: db.prepare(`
+    DELETE FROM agent_memory WHERE wallet_address = ? AND content LIKE ?
+  `),
+  countMemories: db.prepare(`
+    SELECT COUNT(*) as count FROM agent_memory WHERE wallet_address = ?
+  `),
+
+  // Agent daily log
+  getDailyLog: db.prepare(`
+    SELECT * FROM agent_daily_log
+    WHERE wallet_address = ? AND date = ?
+    ORDER BY created_at ASC
+  `),
+  getRecentDailyLogs: db.prepare(`
+    SELECT * FROM agent_daily_log
+    WHERE wallet_address = ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `),
+  insertDailyEvent: db.prepare(`
+    INSERT INTO agent_daily_log (wallet_address, date, event_type, content, metadata)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+  getDailySummary: db.prepare(`
+    SELECT date, GROUP_CONCAT(content, ' | ') as events, COUNT(*) as event_count
+    FROM agent_daily_log
+    WHERE wallet_address = ? AND date >= ?
+    GROUP BY date
+    ORDER BY date DESC
   `),
 };
 
@@ -151,6 +226,62 @@ function getSpendStats(walletAddress, since) {
   return statements.getSpendStats.get(walletAddress, since.toISOString());
 }
 
+// === Memory functions ===
+
+function getMemories(walletAddress, category) {
+  if (category) {
+    return statements.getMemoriesByCategory.all(walletAddress, category);
+  }
+  return statements.getMemories.all(walletAddress);
+}
+
+function saveMemory(walletAddress, content, category = 'general', source = 'chat', confidence = 0.8) {
+  statements.insertMemory.run(walletAddress, category, content, source, confidence);
+  return { success: true };
+}
+
+function deleteMemory(walletAddress, memoryId) {
+  const result = statements.deleteMemory.run(memoryId, walletAddress);
+  return { success: result.changes > 0 };
+}
+
+function deleteMemoryByContent(walletAddress, searchTerm) {
+  const result = statements.deleteMemoryByContent.run(walletAddress, `%${searchTerm}%`);
+  return { success: true, deleted: result.changes };
+}
+
+function getMemoryCount(walletAddress) {
+  const row = statements.countMemories.get(walletAddress);
+  return row ? row.count : 0;
+}
+
+function getDailyLog(walletAddress, date) {
+  return statements.getDailyLog.all(walletAddress, date);
+}
+
+function getRecentDailyLogs(walletAddress, limit = 50) {
+  return statements.getRecentDailyLogs.all(walletAddress, limit);
+}
+
+function appendDailyEvent(walletAddress, eventType, content, metadata = null) {
+  const today = new Date().toISOString().split('T')[0];
+  statements.insertDailyEvent.run(
+    walletAddress,
+    today,
+    eventType,
+    content,
+    metadata ? JSON.stringify(metadata) : null,
+  );
+  return { success: true };
+}
+
+function getDailySummaries(walletAddress, sinceDaysAgo = 7) {
+  const since = new Date();
+  since.setDate(since.getDate() - sinceDaysAgo);
+  const sinceStr = since.toISOString().split('T')[0];
+  return statements.getDailySummary.all(walletAddress, sinceStr);
+}
+
 module.exports = {
   db,
   getUser,
@@ -158,4 +289,14 @@ module.exports = {
   creditDeposit,
   deductSpend,
   getSpendStats,
+  // Memory
+  getMemories,
+  saveMemory,
+  deleteMemory,
+  deleteMemoryByContent,
+  getMemoryCount,
+  getDailyLog,
+  getRecentDailyLogs,
+  appendDailyEvent,
+  getDailySummaries,
 };

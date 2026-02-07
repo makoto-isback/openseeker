@@ -19,6 +19,7 @@ const defiRouter = require('./routes/defi');
 const tokensRouter = require('./routes/tokens');
 const whaleRouter = require('./routes/whale');
 const domainsRouter = require('./routes/domains');
+const memoryRouter = require('./routes/memory');
 const { buildRealX402Middleware } = require('./middleware/x402');
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/defi', defiRouter);
 app.use('/api/tokens', tokensRouter);
 app.use('/api/whale', whaleRouter);
 app.use('/api/domains', domainsRouter);
+app.use('/api/memory', memoryRouter);
 
 // Log startup config
 console.log(`[Server] Port: ${PORT}`);

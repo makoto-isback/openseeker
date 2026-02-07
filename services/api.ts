@@ -231,6 +231,70 @@ export async function generateParkPost(payload: ParkGeneratePayload): Promise<Pa
   return await res.json();
 }
 
+// --- Memory ---
+
+export interface MemoryFact {
+  id: number;
+  content: string;
+  category: string;
+  confidence: number;
+  source: string;
+  created_at: string;
+}
+
+export async function getMemories(wallet: string, category?: string): Promise<{ memories: MemoryFact[]; total: number }> {
+  const serverUrl = useSettingsStore.getState().serverUrl;
+  const url = category
+    ? `${serverUrl}/api/memory/${wallet}?category=${category}`
+    : `${serverUrl}/api/memory/${wallet}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  const res = await fetch(url, { signal: controller.signal });
+  clearTimeout(timeout);
+
+  if (!res.ok) throw new Error(`Memory fetch failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function saveMemoryFact(wallet: string, content: string, category?: string): Promise<any> {
+  const serverUrl = useSettingsStore.getState().serverUrl;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  const res = await fetch(`${serverUrl}/api/memory/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wallet, content, category, source: 'manual' }),
+    signal: controller.signal,
+  });
+  clearTimeout(timeout);
+
+  if (!res.ok) throw new Error(`Memory save failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function getDailyRecap(wallet: string): Promise<any> {
+  const serverUrl = useSettingsStore.getState().serverUrl;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  const res = await fetch(`${serverUrl}/api/memory/summary/${wallet}`, { signal: controller.signal });
+  clearTimeout(timeout);
+
+  if (!res.ok) throw new Error(`Daily recap failed: ${res.status}`);
+  return await res.json();
+}
+
+export async function getWeeklyRecap(wallet: string): Promise<any> {
+  const serverUrl = useSettingsStore.getState().serverUrl;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  const res = await fetch(`${serverUrl}/api/memory/recap/${wallet}`, { signal: controller.signal });
+  clearTimeout(timeout);
+
+  if (!res.ok) throw new Error(`Weekly recap failed: ${res.status}`);
+  return await res.json();
+}
+
 // --- Health ---
 
 export async function checkHealth(): Promise<boolean> {

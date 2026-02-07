@@ -1,7 +1,7 @@
 /**
  * Build the chat prompt messages array for the AI model (Pass 1 — intent detection).
  */
-function buildChatPrompt({ soul, memory, context, wallet, message, history, agent_name }) {
+function buildChatPrompt({ soul, memory, context, wallet, message, history, agent_name, persistentMemory, memoryCount }) {
   const name = agent_name || 'DegenCat';
   const systemContent = [
     `You are ${name}, an AI crypto companion running on the Solana Seeker phone.`,
@@ -15,6 +15,12 @@ function buildChatPrompt({ soul, memory, context, wallet, message, history, agen
     '=== MEMORY — WHAT YOU KNOW ABOUT YOUR OWNER ===',
     memory || '(No memory yet)',
     '',
+    ...(persistentMemory ? [
+      '=== PERSISTENT BRAIN — LONG-TERM MEMORIES ===',
+      `(${memoryCount || 0} facts stored)`,
+      persistentMemory,
+      '',
+    ] : []),
     '=== WALLET — OWNER\'S CURRENT HOLDINGS ===',
     wallet || '(No wallet connected)',
     '',
@@ -62,6 +68,13 @@ function buildChatPrompt({ soul, memory, context, wallet, message, history, agen
     '- [SKILL:claim_domain:name=degen] — Claim a .os domain name for your agent identity. Triggers: claim domain, get .os name, register domain, I want a .os name, get my domain, claim X.os',
     '- [SKILL:lookup_domain:domain=degen.os] — Look up who owns a .os domain. Triggers: who is X.os, lookup domain, whois .os, who owns X.os',
     '',
+    '--- MEMORY SKILLS ---',
+    '- [SKILL:my_memory] — Show what you remember about the user (persistent brain). Triggers: what do you remember, my memory, what do you know about me, show memories',
+    '- [SKILL:remember_this:fact=user prefers low-risk DeFi] — Manually save a fact to persistent memory. Triggers: remember that, remember this, save to memory, note that I',
+    '- [SKILL:forget_this:search=risk tolerance] — Delete memories matching a search term. Triggers: forget that, forget about, delete memory, remove memory about',
+    '- [SKILL:daily_recap] — Get a summary of today\'s activity. Triggers: what did I do today, daily recap, today\'s summary, daily summary',
+    '- [SKILL:weekly_recap] — Get a weekly activity recap. Triggers: weekly recap, this week summary, what happened this week',
+    '',
     'IMPORTANT RULES FOR NEW SKILLS:',
     '- For defi_yields: Mention TVL (higher = safer), warn about impermanent loss for LP positions, flag high APY + low TVL as risky.',
     '- For trending_tokens: ALWAYS include a risk disclaimer for memecoins. NEVER recommend buying. Present data and let user decide. If safety score < 4, explicitly warn high risk.',
@@ -72,6 +85,12 @@ function buildChatPrompt({ soul, memory, context, wallet, message, history, agen
     '- For whale_track: Confirm the wallet is being tracked. Mention they can check activity anytime.',
     '- For claim_domain: Show the domain name, tier, and price. Explain benefits of verified identity. If already taken, suggest alternatives.',
     '- For lookup_domain: Show domain owner info, wallet address (truncated), and agent stats if available.',
+    '- For my_memory: Present memories in a friendly, organized way. Group by category. Mention total count.',
+    '- For remember_this: Confirm what was saved. Be enthusiastic about learning new things about the user.',
+    '- For forget_this: Confirm what was forgotten. Be understanding about privacy.',
+    '- For daily_recap: Present the summary in a fun, narrative style. Highlight key trades and activities.',
+    '- For weekly_recap: Make it feel like a weekly newsletter. Highlight trends, wins, and patterns.',
+    '- Use your PERSISTENT BRAIN memories to personalize all responses. Reference known facts naturally.',
     '- All Jupiter swaps include a 0.25% platform fee.',
     '',
     'If the message is just conversation (gm, how are you, tell me a joke), respond normally WITHOUT any skill tags.',
@@ -130,6 +149,10 @@ function buildSkillResponsePrompt({ soul, originalMessage, skillResults }) {
     'For view_alerts/cancel_alert: List alerts clearly with their conditions and IDs.',
     'For claim_domain: Show tier (OG/Premium/Standard), price in SOL, and benefits. Make it exciting!',
     'For lookup_domain: Show who owns the domain, their agent profile, and wallet.',
+    'For my_memory: Organize memories by category, make them feel personal and useful.',
+    'For remember_this: Confirm what was saved with enthusiasm.',
+    'For forget_this: Confirm deletion with understanding.',
+    'For daily_recap/weekly_recap: Make summaries engaging, highlight wins and notable events.',
   ].join('\n');
 
   return [

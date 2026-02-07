@@ -2,6 +2,7 @@ const express = require('express');
 const { getPrices } = require('../services/coingecko');
 const { callAI } = require('../services/ai');
 const { x402 } = require('../middleware/x402');
+const { logDailyEvent } = require('../services/memory');
 
 const router = express.Router();
 
@@ -142,6 +143,16 @@ router.post('/', x402(0.002), async (req, res) => {
       ...bigMovers.map((m) => `mover:${m.symbol}:${m.change.toFixed(1)}%`),
       ...(Math.abs(portfolioChange) >= 2 ? [`portfolio:${portfolioChange.toFixed(1)}%`] : []),
     ];
+
+    // Log heartbeat event to persistent memory
+    const walletAddress = req.headers['x-wallet'] || '';
+    if (walletAddress) {
+      try {
+        logDailyEvent(walletAddress, 'heartbeat', `Portfolio $${totalValue.toFixed(2)} (${portfolioChange > 0 ? '+' : ''}${portfolioChange.toFixed(1)}%). Triggers: ${triggers.join(', ') || 'none'}`);
+      } catch (logErr) {
+        console.warn('[Heartbeat] Memory log failed:', logErr.message);
+      }
+    }
 
     res.json({
       status: 'ALERT',
