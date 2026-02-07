@@ -1,7 +1,7 @@
 const express = require('express');
 const { buildChatPrompt, buildSkillResponsePrompt } = require('../services/prompts');
 const { chat: aiChat } = require('../services/aiRouter');
-const { executeSkill, parseSkillTags, cleanSkillTags } = require('../services/skills');
+const { executeSkill, parseSkillTags, cleanSkillTags, parseToolTags, cleanToolTags } = require('../services/skills');
 const { x402 } = require('../middleware/x402');
 const {
   formatMemoryForPrompt,
@@ -30,6 +30,9 @@ function cleanResponse(text) {
 
   // Strip any leftover [SKILL:...] tags
   cleaned = cleaned.replace(/\[SKILL:\w+(?::[^\]]*)?]/g, '');
+
+  // Strip any leftover [TOOL:...] tags (new format)
+  cleaned = cleaned.replace(/\[[A-Z_]+(?::[^\]]*)?]/g, '');
 
   // Strip markdown bold/italic
   cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
@@ -90,7 +93,14 @@ router.post('/', x402(0.002), async (req, res) => {
 
     // Skip skill detection for ecosystem/dApp questions — answer from knowledge
     const isEcosystemQuestion = ECOSYSTEM_KEYWORDS.test(message);
-    const skillTags = isEcosystemQuestion ? [] : parseSkillTags(pass1Response);
+    let skillTags = [];
+    if (!isEcosystemQuestion) {
+      // Try new tool tags first, then fallback to old SKILL tags
+      skillTags = parseToolTags(pass1Response);
+      if (skillTags.length === 0) {
+        skillTags = parseSkillTags(pass1Response);
+      }
+    }
 
     if (isEcosystemQuestion) {
       console.log(`[Chat] Ecosystem question detected — skipping skills`);

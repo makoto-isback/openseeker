@@ -1075,4 +1075,108 @@ async function executeSkill(skillName, params) {
   }
 }
 
-module.exports = { executeSkill, parseSkillTags, cleanSkillTags };
+/**
+ * Tool tag mapping — short tags to skill handlers with positional arg maps.
+ * Format: [TAG_NAME:arg1,arg2,...] → { skill: 'handler_name', params: { key1: arg1, ... } }
+ */
+const TOOL_TAG_MAP = {
+  PRICE:           { handler: 'price_check',      argMap: ['token'] },
+  TRENDING:        { handler: 'trending_tokens',   argMap: ['limit'] },
+  YIELDS:          { handler: 'defi_yields',       argMap: ['token', 'sort', 'limit'] },
+  RESEARCH:        { handler: 'token_research',    argMap: ['token'] },
+  PORTFOLIO:       { handler: 'portfolio_track',   argMap: [] },
+  NEWS:            { handler: 'news_digest',       argMap: ['topic'] },
+  SWAP:            { handler: 'swap_quote',        argMap: ['from', 'to', 'amount'] },
+  NEW_TOKENS:      { handler: 'new_tokens',        argMap: ['limit', 'min_liquidity'] },
+  ALERT:           { handler: 'price_alert',       argMap: ['token', 'condition', 'price'] },
+  ORDER:           { handler: null,                argMap: ['type', 'token', 'price', 'amount', 'base'] }, // special: type determines handler
+  VIEW_ORDERS:     { handler: 'view_orders',       argMap: [] },
+  CANCEL_ORDER:    { handler: 'cancel_order',      argMap: ['order_id'] },
+  VIEW_ALERTS:     { handler: 'view_alerts',       argMap: [] },
+  CANCEL_ALERT:    { handler: 'cancel_alert',      argMap: ['alert_id'] },
+  SEND:            { handler: 'send_token',        argMap: ['to', 'amount', 'token'] },
+  SELL:            { handler: 'sell_token',         argMap: ['token', 'amount', 'to_token'] },
+  ROTATE:          { handler: 'rotate_token',      argMap: ['from_token', 'to_token', 'amount'] },
+  STABLECOIN:      { handler: 'go_stablecoin',     argMap: ['token', 'amount'] },
+  STAKE:           { handler: 'liquid_stake',      argMap: ['token', 'amount'] },
+  DCA:             { handler: 'dca_setup',         argMap: ['from', 'to', 'amount', 'interval'] },
+  WHALE_TRACK:     { handler: 'whale_track',       argMap: ['wallet', 'label'] },
+  WHALE_ACTIVITY:  { handler: 'whale_activity',    argMap: ['wallet'] },
+  WHALE_STOP:      { handler: 'whale_stop',        argMap: ['wallet'] },
+  WHALE:           { handler: 'whale_watch',       argMap: ['token'] },
+  DOMAIN_CLAIM:    { handler: 'claim_domain',      argMap: ['name'] },
+  DOMAIN_LOOKUP:   { handler: 'lookup_domain',     argMap: ['domain'] },
+  MEMORY:          { handler: 'my_memory',         argMap: ['category'] },
+  REMEMBER:        { handler: 'remember_this',     argMap: ['fact'] },
+  FORGET:          { handler: 'forget_this',       argMap: ['search'] },
+  RECAP:           { handler: null,                argMap: ['type'] }, // special: type determines handler
+  PARK_DIGEST:     { handler: 'park_digest',       argMap: [] },
+  PARK_CONSENSUS:  { handler: 'park_consensus',    argMap: ['token'] },
+  PARK_POST:       { handler: 'park_post',         argMap: ['content'] },
+};
+
+/**
+ * Parse tool tags from AI response.
+ * Format: [TAG_NAME:arg1,arg2,...] or [TAG_NAME] (no args)
+ * Returns same format as parseSkillTags: [{ skill, params }]
+ */
+function parseToolTags(text) {
+  const tags = [];
+  const regex = /\[([A-Z_]+)(?::([^\]]*))?\]/g;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    const tagName = match[1];
+    const argsStr = match[2] || '';
+
+    const mapping = TOOL_TAG_MAP[tagName];
+    if (!mapping) continue; // not a known tool tag
+
+    // Split args by comma, respecting that args might be empty
+    const args = argsStr ? argsStr.split(',').map(a => a.trim()) : [];
+    const params = {};
+
+    // Map positional args to named params
+    for (let i = 0; i < mapping.argMap.length && i < args.length; i++) {
+      if (args[i]) {
+        params[mapping.argMap[i]] = args[i];
+      }
+    }
+
+    // Determine handler name
+    let handler = mapping.handler;
+
+    // Special case: ORDER — first arg is type (limit_buy, limit_sell, stop_loss)
+    if (tagName === 'ORDER') {
+      const orderType = params.type || 'limit_buy';
+      if (['limit_buy', 'limit_sell', 'stop_loss'].includes(orderType)) {
+        handler = orderType;
+      } else {
+        handler = 'limit_buy';
+      }
+      delete params.type; // don't pass 'type' to handler
+    }
+
+    // Special case: RECAP — first arg picks daily_recap vs weekly_recap
+    if (tagName === 'RECAP') {
+      const recapType = (params.type || 'daily').toLowerCase();
+      handler = recapType === 'weekly' ? 'weekly_recap' : 'daily_recap';
+      delete params.type;
+    }
+
+    if (handler) {
+      tags.push({ skill: handler, params });
+    }
+  }
+
+  return tags;
+}
+
+/**
+ * Remove tool tags from text to get clean response.
+ */
+function cleanToolTags(text) {
+  return text.replace(/\[[A-Z_]+(?::[^\]]*)?]/g, '').trim();
+}
+
+module.exports = { executeSkill, parseSkillTags, cleanSkillTags, parseToolTags, cleanToolTags };
