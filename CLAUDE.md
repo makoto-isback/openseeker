@@ -8,7 +8,7 @@ OpenSeeker is a crypto-native AI companion app for the Solana Seeker phone. Buil
 - **State**: Zustand stores
 - **Storage**: AsyncStorage (keys prefixed `@openseeker/`)
 - **Server**: Express.js (in `server/` with its own package.json)
-- **AI**: Groq SDK (`llama-3.3-70b-versatile`) with lazy init
+- **AI**: Multi-model routing (Groq → Gemini → OpenAI fallback chain) with tool tag system
 - **Prices**: CoinGecko free API with 60s in-memory cache (extends to 5min on 429)
 - **Notifications**: expo-notifications (local push)
 - **Background**: expo-background-fetch + expo-task-manager
@@ -24,14 +24,14 @@ OpenSeeker is a crypto-native AI companion app for the Solana Seeker phone. Buil
 openseeker/
 ├── app/                     # expo-router file-based routing
 │   ├── _layout.tsx          # Root layout (init memory, heartbeat, notifications, wallet, onboarding redirect)
-│   ├── onboarding.tsx       # Wallet onboarding — Google login, Email login, create new, import seed phrase, import private key, agent naming, .os domain upsell
+│   ├── onboarding.tsx       # Wallet onboarding — Google login, Email login, create new, import seed phrase, import private key, agent naming, risk consent, .os domain upsell
 │   ├── park.tsx             # Agent Park modal — leaderboard, town square, post flow
 │   └── (tabs)/
 │       ├── _layout.tsx      # Tab bar config (Chat, Portfolio, Skills, Settings)
 │       ├── index.tsx        # Chat screen with level badge, quick actions, FAB, offline banner
-│       ├── portfolio.tsx    # Portfolio value, holdings with live prices, automations
+│       ├── portfolio.tsx    # Portfolio — on-chain holdings (SOL + SPL tokens), live prices, automations
 │       ├── skills.tsx       # 8-skill grid with spend stats, coming soon section
-│       └── settings.tsx     # SOUL.md editor, alerts, heartbeat, spending, DCA, gamification, domain identity, wallet, memory, advanced
+│       └── settings.tsx     # Alerts, heartbeat, spending, DCA, gamification, domain identity, wallet, memory, advanced
 ├── components/chat/
 │   ├── MessageBubble.tsx    # Chat bubble with avatar + skill cards for AI messages
 │   ├── SkillCard.tsx        # Rich cards for skill results (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking)
@@ -40,8 +40,8 @@ openseeker/
 │   ├── DefiYieldCard.tsx    # DeFi yield pools with APY, TVL, difficulty, stake buttons
 │   ├── TrendingTokensCard.tsx # Trending tokens with safety bars, buy buttons, risk disclaimer
 │   ├── TokenResearchCard.tsx  # Deep token research with multi-timeframe data, safety analysis
-│   ├── SendConfirmCard.tsx  # Send SOL/tokens confirm card with address, amount, confirm/cancel
-│   ├── SellConfirmCard.tsx  # Sell/rotate/emergency exit confirm card with swap quote
+│   ├── SendConfirmCard.tsx  # Send SOL/tokens confirm card with address, amount, auto-execute when risk accepted
+│   ├── SellConfirmCard.tsx  # Sell/rotate/emergency exit confirm card, auto-execute when risk accepted
 │   ├── WhaleTrackCard.tsx   # Whale tracking card (track/activity/stop states)
 │   ├── NewTokensCard.tsx    # New token scanner card with age, safety scores, risk disclaimer
 │   ├── DomainClaimCard.tsx  # .os domain claim/lookup card (tier badge, price, benefits, claim button)
@@ -57,13 +57,15 @@ openseeker/
 │   └── VerifiedBadge.tsx    # Tier-based verified badge (OG/Premium/Standard) with tap tooltip
 ├── constants/
 │   ├── theme.ts             # Dark theme colors, spacing, fontSize, borderRadius
-│   ├── defaults.ts          # Default SOUL.md, MEMORY.md, WALLET.md templates
+│   ├── defaults.ts          # Default MEMORY.md template
+│   ├── tokenMints.ts        # Solana mint address → symbol mapping (TOKEN_MINTS, SYMBOL_TO_MINT)
 │   └── tokenEmojis.ts       # Token symbol → emoji mapping (SOL→◎, BTC→₿, etc.)
 ├── supabase/
 │   ├── client.ts            # Supabase client singleton (EXPO_PUBLIC_ env vars)
 │   └── agentPark.ts         # Agent Park service — profiles, leaderboard, messages, realtime
 ├── services/
-│   ├── memory.ts            # AsyncStorage CRUD for all memory keys
+│   ├── memory.ts            # AsyncStorage CRUD for memory + daily keys
+│   ├── onChainPortfolio.ts  # Fetch real SOL + SPL token balances from Solana RPC, price resolution, 30s cache
 │   ├── api.ts               # HTTP client: sendMessage, heartbeat, briefing, checkHealth, swap, park endpoints
 │   ├── x402.ts              # x402 payment protocol — paidFetch wrapper, test mode headers
 │   ├── privyBridge.ts       # Singleton bridge: stores Privy provider for non-React service code
@@ -73,12 +75,10 @@ openseeker/
 │   ├── dca.ts               # DCA automation CRUD (AsyncStorage @openseeker/automations) + XP
 │   ├── orders.ts            # Trading order CRUD + auto-execution (limit buy/sell, stop loss)
 │   ├── priceWatcher.ts      # Fast price polling (60s) when active orders exist
-│   ├── walletManager.ts     # Update WALLET.md holdings, record trades
 │   ├── memoryEngine.ts      # Post-response processing: daily log, fact extraction, context compression
 │   ├── heartbeat.ts         # Background + foreground heartbeat execution + DCA checks
 │   ├── notifications.ts     # Push notification setup, local send, daily scheduling
 │   ├── alerts.ts            # Price alert CRUD (AsyncStorage @openseeker/alerts)
-│   ├── walletParser.ts      # Parse WALLET.md/MEMORY.md into structured data
 │   ├── gamification.ts      # XP + leveling system (10 levels, AsyncStorage)
 │   ├── achievements.ts      # 10 achievements with counter-based tracking
 │   ├── reputation.ts        # Agent Park reputation system (tiers, consensus calculation)
@@ -87,15 +87,16 @@ openseeker/
 │   ├── demoSeed.ts          # Seed demo agents + messages to Supabase
 │   └── domainService.ts     # .os domain client service (check, register, lookup, getMyDomain)
 ├── stores/
-│   ├── chatStore.ts         # Messages, send flow, loading state, DCA + order side-effects
+│   ├── chatStore.ts         # Messages, send flow, loading state, DCA + order side-effects, trade skill gating
 │   ├── orderStore.ts        # Trading orders state, placeOrder, cancelOrder
-│   ├── memoryStore.ts       # SOUL/MEMORY/DAILY/WALLET content
-│   ├── walletStore.ts       # Embedded/Privy wallet state, signAndSendTransaction (auto-routes by walletType), balance
-│   └── settingsStore.ts     # Server URL, heartbeat config, notification toggles, daily spend limit
+│   ├── memoryStore.ts       # MEMORY + DAILY content (soul/wallet removed — on-chain data replaces .md files)
+│   ├── walletStore.ts       # Embedded/Privy wallet state, on-chain holdings (SOL + SPL tokens), signAndSendTransaction, refreshHoldings
+│   └── settingsStore.ts     # Server URL, heartbeat config, notification toggles, daily spend limit, risk consent state
 ├── utils/
 │   └── formatters.ts        # Price, number, percent, time formatting
 ├── components/
-│   └── PrivyBridgeSync.tsx  # Syncs Privy wallet hooks → singleton bridge for non-React code
+│   ├── PrivyBridgeSync.tsx  # Syncs Privy wallet hooks → singleton bridge for non-React code
+│   └── RiskConsentScreen.tsx # One-time risk acceptance screen (OpenClaw-style) for auto-trade execution
 ├── server/
 │   ├── index.js             # Express setup, CORS, rate limiting, route mounting, real x402 middleware, Railway-ready
 │   ├── middleware/x402.js   # Dual-mode x402: real x402 SDK (@x402/express) + credit system fallback
@@ -119,10 +120,11 @@ openseeker/
 │   ├── migrations/
 │   │   └── add-os-domains.sql  # SQL migration for domain columns + registrations table
 │   └── services/
-│       ├── ai.js            # Groq SDK wrapper (lazy init)
+│       ├── ai.js            # Groq SDK wrapper (lazy init, no 8b fallback)
+│       ├── aiRouter.js      # Multi-model routing: Groq 70b → Gemini 2.0 Flash → OpenAI fallback chain
 │       ├── coingecko.js     # CoinGecko API: getPrice, getPrices, getMarketData (60s cache, 5min on 429)
-│       ├── prompts.js       # Two-pass prompt builder (intent detection + result formatting)
-│       ├── skills.js        # Skill registry: 31 skills (8 original + 5 trading + 3 DeFi + 3 park + 10 advanced + 2 domain)
+│       ├── prompts.js       # Two-pass prompt builder (tool tag intent detection + result formatting)
+│       ├── skills.js        # Skill registry: 36 skills + tool tag parser (TOOL_TAG_MAP, parseToolTags, cleanToolTags)
 │       ├── jupiter.js       # Jupiter Quote + Swap Transaction APIs with mock fallback
 │       ├── solscan.js       # Mock whale transaction data
 │       ├── tokenResearch.js # Token safety analysis (CoinGecko + heuristics)
@@ -192,7 +194,8 @@ openseeker/
 - **Entry point**: `expo-router/entry` (set in package.json `main`)
 - **Routing**: File-based via expo-router. Tabs in `app/(tabs)/`.
 - **State management**: Zustand with `create()`. Access outside React via `useStore.getState()`.
-- **Memory system**: All persistent data in AsyncStorage with `@openseeker/` prefix. Services in `services/memory.ts`.
+- **Portfolio data**: On-chain via Solana RPC (`Connection.getBalance` + `getParsedTokenAccountsByOwner`). `services/onChainPortfolio.ts` fetches real balances, resolves mint addresses via `constants/tokenMints.ts`, gets USD prices from `/price/:symbol`. Cached 30s. `walletStore.ts` is the single source of truth — has `holdings`, `totalUsd`, `portfolioData`, `refreshHoldings()`. No more WALLET.md or SOUL.md — all .md file dependencies removed (Day 18).
+- **Memory system**: MEMORY.md + DAILY in AsyncStorage with `@openseeker/` prefix. Services in `services/memory.ts`.
 - **API calls**: All server communication goes through `services/api.ts`. Paid endpoints use `paidFetch()` from `services/x402.ts`.
 - **x402 payments**: Dual-mode on server: (1) Real x402 protocol via @x402/express + @x402/svm — checks PAYMENT-SIGNATURE header, uses Coinbase facilitator for settlement. (2) Credit system fallback via X-Wallet header + SQLite balance. Client `paidFetch()` handles 402 → create payment → retry. Test mode: `test:{wallet}:{timestamp}` header. Spending tracked in `services/spending.ts`.
 - **Memory engine**: `services/memoryEngine.ts` runs after every AI response — logs to DAILY, extracts facts, compresses context every 20 messages.
@@ -203,20 +206,21 @@ openseeker/
 - **Trading orders**: Stored in AsyncStorage `@openseeker/orders`. Types: limit_buy, limit_sell, stop_loss. Created via chat skills. Price watcher polls every 60s when active orders exist, auto-stops when none. Orders auto-execute via swap service when price triggers hit. Notifications sent on fill/expire/fail.
 - **Embedded wallet**: App holds keypair in expo-secure-store. `services/embeddedWallet.ts` handles mnemonic generation (@scure/bip39), BIP44 derivation (manual HMAC-SHA512), and key storage. `stores/walletStore.ts` exports `signAndSendTransaction()` which auto-routes by `walletType` — embedded uses local keypair, Privy delegates to `privyBridge.ts`.
 - **Privy wallet**: Optional login via Google OAuth or Email OTP. Privy auto-creates Solana embedded wallet. `PrivyBridgeSync` component syncs Privy hooks → singleton bridge. `walletStore.ts` stores `walletType: 'embedded' | 'privy'` in AsyncStorage. Privy App ID: `cmlb2hg5r02qiky0efhf457my`.
-- **Onboarding**: `app/onboarding.tsx` shown when no wallet exists. Five wallet flows + agent naming step + .os domain upsell. After wallet creation/import, user names their agent (default "DegenCat", 2-20 chars, alphanumeric + underscore/dash), then sees a domain upsell screen offering `{name}.os` with tier/price info. Name stored in AsyncStorage `@openseeker/agent_name` + settingsStore. Domain info stored in `@openseeker/os_domain`. Redirected from `_layout.tsx` via `isInitialized` check.
+- **Onboarding**: `app/onboarding.tsx` shown when no wallet exists. Five wallet flows + agent naming + risk consent + .os domain upsell. After wallet creation/import, user names their agent (default "DegenCat", 2-20 chars), then sees one-time risk consent screen (accept or skip), then domain upsell. Name stored in AsyncStorage `@openseeker/agent_name` + settingsStore. Domain info stored in `@openseeker/os_domain`. Redirected from `_layout.tsx` via `isInitialized` check.
 - **Agent naming**: Set during onboarding, used everywhere: chat responses, park posts, heartbeat notifications. Loaded on app startup via `loadAgentName()` in `_layout.tsx`. AI system prompt dynamically includes agent name.
-- **Swap execution**: SwapCard in chat has Confirm/Cancel buttons. On confirm: embedded wallet signing → TransactionCard with tx signature.
+- **Risk consent**: One-time OpenClaw-style risk acceptance. `settingsStore.ts` has `riskAccepted` + `riskAcceptedAt`, persisted in AsyncStorage `@openseeker/risk_consent`. Shown during onboarding (between agent naming and domain upsell). When accepted, all trade cards (SwapCard, SendConfirmCard, SellConfirmCard, LiquidStakeCard) auto-execute on mount — no confirm/cancel buttons. Trade skills gated in `chatStore.ts` — if `!riskAccepted`, trade skill results are filtered out and user sees consent prompt. `RiskConsentScreen.tsx` component with permissions list + risk disclaimers.
+- **Swap execution**: When risk accepted, SwapCard auto-executes on mount → TransactionCard with tx signature. When not accepted, shows Confirm/Cancel buttons.
 - **Theme**: Dark theme (#0D0D0D bg). All colors/spacing from `constants/theme.ts`. No inline magic numbers.
-- **Server AI**: Groq client lazily initialized to avoid crash when no API key. Model: `llama-3.3-70b-versatile`.
-- **Two-pass skill system**: Pass 1 detects intent via `[SKILL:name:params]` tags in AI response. Skills execute. Pass 2 formats results in personality.
-- **Skill tag format**: `[SKILL:skill_name:param1=value1,param2=value2]`. Parsed by `parseSkillTags()` in `skills.js`.
+- **Server AI**: Multi-model routing via `aiRouter.js`. Groq 70b (free, fast) → Gemini 2.0 Flash (free, 1500/day) → OpenAI GPT-4o-mini (paid backup). Groq 8b fallback removed — when 70b hits TPD limit, skips directly to Gemini because 8b can't follow tool tag instructions. AI complexity classification routes simple queries to Groq, complex to Gemini.
+- **Two-pass tool system**: Pass 1 detects intent via `[TAG:args]` tool tags in AI response (e.g. `[PRICE:SOL]`, `[SWAP:SOL,WIF,1]`). Skills execute. Pass 2 formats results in personality.
+- **Tool tag format**: `[TAG_NAME:arg1,arg2,...]` — compact positional args. Parsed by `parseToolTags()` in `skills.js` using `TOOL_TAG_MAP` (33 entries). Falls back to legacy `[SKILL:name:params]` format via `parseSkillTags()`. Special cases: `ORDER` tag uses first arg as type (limit_buy/limit_sell/stop_loss), `RECAP` picks daily/weekly handler.
 - **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain, my_memory, remember_this, forget_this, daily_recap, weekly_recap.
 - **Park skills**: `park_digest` summarizes recent park messages (client sends park_context). `park_consensus` aggregates agent opinions on a token weighted by reputation. `park_post` posts to park (requires parkMode === 'active'). Park context injected in chat route like wallet_content.
 - **Reputation system**: `services/reputation.ts` — `getReputationTier(score)` (Newbie/Regular/Trusted/Elite), `calculateConsensus(messages)` weights sentiment by agent reputation + confidence. Schema ready for post-hackathon 24h verification.
 - **Agent Park settings**: `settingsStore.ts` has agentName, agentId, parkMode ('off'|'listen'|'active'), parkBudgetDaily ($0.05), parkSpentToday, parkTopics. Settings UI section with mode selector, budget, topic toggles.
 - **Domain identity**: `settingsStore.ts` has osDomain, isVerified, domainTier, domainExpiresAt. Persisted in AsyncStorage `@openseeker/os_domain`. Loaded during `loadAgentName()`. `VerifiedBadge` component shows tier-based badges (OG: gold crown, Premium: purple gem, Standard: blue check). Integrated in chat header, park messages, leaderboard, agent cards, settings.
 - **Skill results**: Returned as `skill_results` array alongside `response`. Each has `{ skill, success, data?, error? }`.
-- **Skill cards**: `SkillCard.tsx` renders rich UI cards for each skill type (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking, domain). `OrderCard.tsx` handles limit_buy/sell, stop_loss, view_orders, cancel_order. `SendConfirmCard.tsx` handles send_token. `SellConfirmCard.tsx` handles sell_token, rotate_token, go_stablecoin. `WhaleTrackCard.tsx` handles whale_track/activity/stop. `NewTokensCard.tsx` handles new_tokens. `DomainClaimCard.tsx` handles claim_domain/lookup_domain.
+- **Skill cards**: `SkillCard.tsx` renders rich UI cards for each skill type (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking, domain). `OrderCard.tsx` handles limit_buy/sell, stop_loss, view_orders, cancel_order. `SendConfirmCard.tsx` handles send_token (auto-executes when risk accepted). `SellConfirmCard.tsx` handles sell_token, rotate_token, go_stablecoin (auto-executes when risk accepted). `WhaleTrackCard.tsx` handles whale_track/activity/stop. `NewTokensCard.tsx` handles new_tokens. `DomainClaimCard.tsx` handles claim_domain/lookup_domain.
 - **Persistent Memory**: SQLite-based agent brain (`server/services/memory.js`). Auto-extracts facts from chat via AI (async, non-blocking). Categories: preference, portfolio, trading, personal, strategy, general. Max 100 memories per wallet. Daily event logging with AI-generated summaries. Memory injected into chat system prompt as "PERSISTENT BRAIN" section. 5 memory skills: my_memory, remember_this, forget_this, daily_recap, weekly_recap. Heartbeat logs portfolio events to daily log. Chat route reads X-Wallet header to identify wallet for memory operations.
 - **CoinGecko**: 60s in-memory cache (extends to 5min on 429 rate limit). Symbol→ID mapping in `coingecko.js`. Mock fallback on API failure.
 - **Jupiter**: Swap quotes + swap transactions via `api.jup.ag/swap/v1`. Falls back to mock rates/transactions when API unavailable.
@@ -229,12 +233,11 @@ openseeker/
 - Connection status dot (green/red) checks `/health` every 30 seconds
 - Heartbeat runs initial check 5s after app launch, then on configured interval
 - CoinGecko free API — batch requests where possible to minimize calls
-- Wallet parser supports both `- SOL: 10 @ $180` and `| SOL | 10 | 180 |` formats
 - x402 dual-mode: real x402 SDK (PAYMENT-SIGNATURE header) + credit system (X-Wallet header). Health and price routes are free
 - Swap execution uses embedded wallet auto-signing — no external wallet popup
 - DCA runs in heartbeat but only logs (no actual swap execution for hackathon safety)
 - Daily spend limit defaults to $1.00, configurable in Settings
-- Portfolio fetches prices individually per holding from `/price/:symbol` (free endpoint)
+- Portfolio reads on-chain holdings from `walletStore.holdings` (SOL + SPL tokens via RPC), prices via `/price/:symbol`
 - Agent Park uses Supabase for persistence + Realtime for live feed updates
 - Park posts generated via `/park/generate` (x402: $0.005) with personality-driven AI
 - Gamification: 10 levels (Newborn→Transcendent), XP earned from chat (+1), swap (+5/+10), DCA (+5), park post (+2)
@@ -284,11 +287,17 @@ openseeker/
 - SkillCard.tsx switch: do NOT duplicate `case` labels — JS falls through to the first match. The `token_research` case checks `data?.token` for DexScreener-enhanced rendering vs CoinGecko fallback.
 - .os Domain System: Pricing is character-length based (OG 1-2: 2 SOL, Premium 3-4: 0.5 SOL, Standard 5+: 0.1 SOL). Test mode (`X402_MODE=test`) allows `test_simulation` tx signatures for domain registration. Treasury wallet set via `TREASURY_WALLET` env var. In-memory domain storage used as fallback when Supabase is not configured. Domain state persisted in AsyncStorage `@openseeker/os_domain`.
 - send_token resolves .os domain names to wallet addresses via `/api/domains/lookup/`. The `osDomain` field in skill result indicates a domain was resolved.
-- Onboarding flow now: wallet creation → agent naming → .os domain upsell → main app. Users can skip domain claim and do it later via chat.
-- Groq free tier: 100k tokens/day (TPD) limit on `llama-3.3-70b-versatile`. `ai.js` auto-falls back to `llama-3.1-8b-instant` on TPD exhaustion or rate limits. Fallback model has lower quality but keeps the app functional.
+- Onboarding flow now: wallet creation → agent naming → risk consent → .os domain upsell → main app. Users can skip risk consent and domain claim.
+- Groq free tier: 100k tokens/day (TPD) limit on `llama-3.3-70b-versatile`. When TPD exhausted, skips 8b fallback entirely and falls through to Gemini 2.0 Flash (8b can't follow tool tag instructions). `aiRouter.js` handles the fallback chain.
+- Tool tag format `[TAG:args]` is the primary format. Legacy `[SKILL:name:params]` is kept as fallback. `parseToolTags()` runs first, then `parseSkillTags()` if no tags found.
+- Risk consent state persisted in AsyncStorage `@openseeker/risk_consent` as JSON with `accepted` boolean and `acceptedAt` ISO timestamp. Loaded during `loadAgentName()` on app startup.
+- Trade skill gating: `chatStore.ts` checks `riskAccepted` before allowing fund-moving skills (swap_quote, limit_buy, limit_sell, stop_loss, dca_setup, send_token, sell_token, rotate_token, go_stablecoin, liquid_stake). Non-trade skills always pass through.
 - Persistent memory uses X-Wallet header from paidFetch to identify wallet address for memory operations. Memory extraction runs async after each chat response (non-blocking). Max 100 memories per wallet. Memory tables are in the same SQLite DB as credit system (server/openseeker.db).
 - Memory extraction AI call uses separate Groq request — counts against TPD. If extraction fails, chat still works (extraction is fire-and-forget).
 - Daily log events accumulate without limit — consider periodic cleanup for production.
+- WALLET.md and SOUL.md are fully removed — do NOT re-add `readSoul()`, `readWallet()`, `updateWallet()`, `walletParser`, or `walletManager`. All portfolio data comes from on-chain RPC via `onChainPortfolio.ts`. Wallet context for AI is built by `buildWalletContext()` from `walletStore.portfolioData`.
+- `onChainPortfolio.ts` caches for 30s — call `clearPortfolioCache()` after swaps/transfers to force refresh.
+- Unknown SPL tokens (not in `TOKEN_MINTS`) show as abbreviated mint addresses (e.g. `EPjF...Dt1v`).
 
 ## Day Progress
 - **Day 1**: Foundation — scaffolding, screens, stores, server, memory system
@@ -307,6 +316,8 @@ openseeker/
 - **Day 14**: .os Domain Identity System — Full domain name system for AI agents. Tiered pricing: OG (1-2 chars, 2 SOL), Premium (3-4 chars, 0.5 SOL), Standard (5+ chars, 0.1 SOL). 7 new server endpoints (check, price, register, my, lookup, leaderboard, stats) at /api/domains/. On-chain SOL payment verification (server/services/solana.js) with replay attack protection. Domain config with reserved names (server/config/domains.js). Client-side domain service (services/domainService.ts). VerifiedBadge component with 3 tiers (OG gold crown, Premium purple gem, Standard blue check). Badge integrated in: chat header, Agent Park messages, leaderboard rows, agent cards, settings. 2 new skills: claim_domain, lookup_domain (total: 31). DomainClaimCard UI for chat. Onboarding .os upsell screen after agent naming. send_token resolves .os domains to wallet addresses. Settings domain identity section. Demo seed data includes verified agents. Supabase queries include domain fields. SQL migration for agent_profiles (os_domain, domain_tier, is_verified, etc.) + domain_registrations table. In-memory fallback for dev/demo. TypeScript 0 errors.
 - **Day 15**: Emulator Testing + GitHub Push + Railway Deploy — Full end-to-end testing on Android emulator. Production APK built pointing to Railway server (https://openseeker-production.up.railway.app). GitHub repo live at https://github.com/makoto-isback/openseeker. Server deployed on Railway.
 - **Day 16**: Persistent Agent Memory System — OpenClaw-style brain for the AI agent. SQLite-backed persistent memory with auto-extraction from chat. 2 new DB tables: agent_memory (facts about user, categorized, with confidence scores) and agent_daily_log (event logging per day). Server-side memory service (server/services/memory.js) with AI-powered fact extraction, daily summaries, weekly recaps. 12 new API endpoints at /api/memory/. Memory injected into chat system prompt as "PERSISTENT BRAIN" section — AI naturally references stored facts. Heartbeat logs portfolio events. 5 new skills: my_memory (show stored memories), remember_this (explicit save), forget_this (delete by search), daily_recap (AI summary of today), weekly_recap (7-day summary). MemoryCard.tsx component with 5 card variants. Total skills: 36. TypeScript 0 errors. All endpoints tested and working.
+- **Day 17**: Tool Tag Routing + Risk Consent + Auto-Execute — Refactored skill system from verbose `[SKILL:name:params]` to compact `[TAG:args]` format (e.g. `[PRICE:SOL]`, `[SWAP:SOL,WIF,1]`). Added `TOOL_TAG_MAP` (33 entries) and `parseToolTags()` to skills.js. Prompt rewritten: `## SKILL DETECTION` → `## AVAILABLE TOOLS`. AI now decides when to use tools vs answer from knowledge. Fallback chain: new tags → old SKILL tags. Removed Groq 8b fallback — when 70b hits TPD, skips to Gemini directly (8b can't follow tool tag instructions). Implemented OpenClaw-style one-time risk consent: `RiskConsentScreen.tsx` with permissions + disclaimers, added to onboarding flow between agent naming and domain upsell. All trade cards (SwapCard, LiquidStakeCard, SendConfirmCard, SellConfirmCard) auto-execute on mount when risk accepted. Trade skills gated in chatStore — filtered out if `!riskAccepted`. System prompt updated with `## EXECUTION MODE` telling AI to never ask for confirmation. Deployed to Railway (auto-deploy from GitHub push). APK rebuilt (67MB). TypeScript 0 errors. All 5 live tests pass (ecosystem knowledge, price, trending, analysis, general knowledge).
+- **Day 18**: Remove .md File Dependencies — Replaced WALLET.md/SOUL.md with real on-chain data. New `onChainPortfolio.ts` service fetches SOL + SPL token balances from Solana RPC (`getBalance` + `getParsedTokenAccountsByOwner`), resolves mint addresses via `tokenMints.ts` (17 tokens), gets USD prices from `/price/:symbol`, 30s cache. `walletStore.ts` now has `holdings`, `totalUsd`, `portfolioData`, `refreshHoldings()` — single source of truth. Portfolio tab reads on-chain data. Chat + heartbeat build wallet context string from live balances (`buildWalletContext()`). Swap service refreshes holdings after execution instead of writing to WALLET.md. Deleted: `walletManager.ts`, `walletParser.ts`. Removed: `DEFAULT_SOUL`, `DEFAULT_WALLET`, `readSoul()`, `readWallet()`, `updateSoul()`, `updateWallet()`. Settings no longer shows SOUL.md or WALLET.md editors. `memoryStore.ts` only tracks `userMemory` + `daily`. `memoryEngine.ts` no longer writes trade notes to WALLET.md. TypeScript 0 errors. Net: -171 lines (429 added, 600 removed).
 - **Day 15 (original)**: Emulator Testing — Full end-to-end testing on Android emulator (Pixel device, API 35). APK built (67MB), installed, and tested every screen and flow. Cold start ~3s. Onboarding flow verified: wallet creation (mnemonic generation + 12-word display), agent naming (default "DegenCat"), .os domain upsell (skip works). Chat tab verified: AI responses, memory engine, skill cards, quick action chips, FAB button, level badge, connection status indicator. All 31 skills tested via server API — all returning correct data (CoinGecko live prices, DexScreener trending/research, DeFiLlama yields, Jupiter swap quotes). Portfolio/Skills/Settings tabs all render without errors. Settings has all 14 sections: SOUL.md, Memory, Wallet, Daily Log, Clear/Reset, Gamification (XP/levels), Domain Identity, Agent Park (mode selector, topics), Deposit SOL (presets + custom), Test Credits, Active Orders, Watched Wallets, Price Alerts, Advanced (Server URL, x402 mode). 402 error handling verified — shows user-friendly "Insufficient credits" message. Zero JS errors, zero warnings (session), zero ANR, zero native crashes, zero TypeScript errors. **VERDICT: READY FOR DEMO.**
 
 ## Emulator Test Results (Day 15)
