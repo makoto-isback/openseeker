@@ -1,4 +1,4 @@
-const { getMarketData, SYMBOL_MAP } = require('./coingecko');
+const { getMarketData, COINGECKO_IDS: SYMBOL_MAP } = require('./priceCache');
 
 // Tokens on Jupiter's verified/strict list (known safe tokens)
 const JUPITER_STRICT_LIST = new Set([

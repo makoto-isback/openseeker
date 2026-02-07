@@ -9,7 +9,7 @@ const express = require('express');
 const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const { creditDeposit, getUser } = require('../db');
 const { DEPOSIT_WALLET, USDC_MINT } = require('../middleware/x402');
-const { getPrice } = require('../services/coingecko');
+const { getPrice } = require('../services/priceCache');
 
 const router = express.Router();
 

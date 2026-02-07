@@ -1,5 +1,5 @@
 const express = require('express');
-const { getPrices } = require('../services/coingecko');
+const { getPrices } = require('../services/priceCache');
 const { callAI } = require('../services/ai');
 const { x402 } = require('../middleware/x402');
 

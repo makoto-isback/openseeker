@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { DOMAIN_PRICING, TREASURY_WALLET, getTier, getPrice, validateName } = require('../config/domains');
 const { verifyDomainPayment } = require('../services/solana');
-const { getPrice: getSOLPrice } = require('../services/coingecko');
+const { getPrice: getSOLPrice } = require('../services/priceCache');
 const { getCached, setCache } = require('../utils/cache');
 
 // Helper: get Supabase client (lazy require to avoid circular deps)

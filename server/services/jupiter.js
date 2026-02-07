@@ -9,6 +9,7 @@
 // Jupiter API endpoints
 const JUPITER_QUOTE_API = 'https://api.jup.ag/swap/v1/quote';
 const JUPITER_SWAP_API = 'https://api.jup.ag/swap/v1/swap';
+const JUPITER_API_KEY = process.env.JUPITER_API_KEY || 'ce8c789c-1bcd-4437-87e9-529fc7605963';
 
 // Referral — 0.25% platform fee on all swaps
 const REFERRAL_ACCOUNT = 'FqQ7qbKWi8yYXFbbwDvPbqcwbKzyu5CLa7hFLRh58yc5';
@@ -96,7 +97,10 @@ async function getQuote(fromSymbol, toSymbol, amount, slippageBps = 50) {
     const url = `${JUPITER_QUOTE_API}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountLamports}&slippageBps=${slippageBps}&platformFeeBps=${PLATFORM_FEE_BPS}`;
     console.log(`[Jupiter] Quote request: ${from} → ${to}, amount: ${amount}`);
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(url, {
+      headers: { 'x-api-key': JUPITER_API_KEY },
+      signal: AbortSignal.timeout(10000),
+    });
 
     if (res.ok) {
       const data = await res.json();
@@ -149,7 +153,7 @@ async function getSwapTransaction(quoteResponse, userPublicKey) {
 
       const res = await fetch(JUPITER_SWAP_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': JUPITER_API_KEY },
         body: JSON.stringify({
           quoteResponse: quoteResponse.rawResponse,
           userPublicKey,

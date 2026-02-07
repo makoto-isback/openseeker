@@ -1,4 +1,4 @@
-const { getMarketData, getPrices } = require('./coingecko');
+const { getMarketData, getPrices } = require('./priceCache');
 const { getQuote } = require('./jupiter');
 const { getRecentLargeTransfers } = require('./solscan');
 const { analyze } = require('./tokenResearch');
@@ -778,7 +778,7 @@ const skills = {
   claim_domain: async ({ name }) => {
     if (!name) throw new Error('name param required (e.g. "degen")');
     const { checkDomain, getPrice: getDomainPrice, DOMAIN_PRICING, getTier } = require('../config/domains');
-    const { getPrice: getSOLPrice } = require('./coingecko');
+    const { getPrice: getSOLPrice } = require('./priceCache');
 
     const cleanName = name.replace(/\.os$/i, '').toLowerCase().trim();
     const { validateName } = require('../config/domains');

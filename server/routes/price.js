@@ -1,13 +1,11 @@
 const express = require('express');
-const { getPrice, getMarketData } = require('../services/coingecko');
+const { getPrice, getMarketData } = require('../services/priceCache');
 
 const router = express.Router();
 
 /**
  * GET /price/:symbol
- *
- * Returns live price data from CoinGecko with 60s cache.
- * Falls back to mock data if CoinGecko is unavailable.
+ * Returns live price data (Jupiter primary, CoinGecko fallback).
  */
 router.get('/:symbol', async (req, res) => {
   const { symbol } = req.params;
@@ -18,36 +16,17 @@ router.get('/:symbol', async (req, res) => {
       ? await getMarketData(symbol)
       : await getPrice(symbol);
 
-    res.json({
-      ...data,
-      timestamp: new Date().toISOString(),
-      source: 'coingecko',
-    });
-  } catch (error) {
-    console.error(`[Price] Error fetching ${symbol}:`, error.message);
-
-    // Fallback to mock data if CoinGecko fails
-    const mockPrices = {
-      SOL: { price: 178.42, change_24h: 3.2 },
-      BTC: { price: 97500.00, change_24h: 1.1 },
-      ETH: { price: 3450.00, change_24h: -0.8 },
-      WIF: { price: 2.15, change_24h: 12.5 },
-      BONK: { price: 0.0000234, change_24h: -5.3 },
-    };
-
-    const upper = symbol.toUpperCase();
-    const mock = mockPrices[upper];
-
-    if (!mock) {
-      return res.status(404).json({ error: `Price not found for ${upper}` });
+    if (!data || !data.price) {
+      return res.status(404).json({ error: `Price not found for ${symbol.toUpperCase()}` });
     }
 
     res.json({
-      symbol: upper,
-      ...mock,
+      ...data,
       timestamp: new Date().toISOString(),
-      source: 'mock',
     });
+  } catch (error) {
+    console.error(`[Price] Error fetching ${symbol}:`, error.message);
+    res.status(500).json({ error: `Failed to fetch price for ${symbol.toUpperCase()}` });
   }
 });
 
