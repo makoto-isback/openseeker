@@ -174,8 +174,17 @@ const statements = {
 };
 
 // Helper functions
+// Free tier: new wallets get $0.20 (100 messages at $0.002 each)
+const FREE_TIER_CREDIT = 0.20;
+
 function getOrCreateUser(walletAddress) {
+  const existing = statements.getUser.get(walletAddress);
+  if (existing) return existing;
+
+  // New user — create with free tier credit
   statements.createUser.run(walletAddress);
+  statements.updateBalance.run(FREE_TIER_CREDIT, FREE_TIER_CREDIT, walletAddress);
+  console.log(`[DB] New user ${walletAddress.slice(0, 8)}... — credited $${FREE_TIER_CREDIT} free tier (100 messages)`);
   return statements.getUser.get(walletAddress);
 }
 
