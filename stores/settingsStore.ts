@@ -49,8 +49,8 @@ interface SettingsState {
 
 // Update this to your Railway URL after deployment, e.g.:
 // 'https://openseeker-server.up.railway.app'
-// Keep http://10.0.2.2:3000 for local Android emulator development
-const DEFAULT_SERVER_URL = 'http://10.0.2.2:3000';
+// Production Railway server (change in Settings for local dev: http://10.0.2.2:3000)
+const DEFAULT_SERVER_URL = 'https://openseeker-production.up.railway.app';
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   serverUrl: DEFAULT_SERVER_URL,
