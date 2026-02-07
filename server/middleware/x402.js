@@ -23,7 +23,7 @@ const PRICE_TABLE = {
   '/park/generate': 0.005,
 };
 
-const DEPOSIT_WALLET = process.env.DEPOSIT_WALLET || 'DegenCat11111111111111111111111111111111111';
+const DEPOSIT_WALLET = process.env.DEPOSIT_WALLET || 'BxRG4VDK9rjHRoDH7VrT7nz7uiBPujx98azqBH6wvXAn';
 const X402_MODE = process.env.X402_MODE || 'production';
 const USDC_MINT = process.env.USDC_MINT || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 

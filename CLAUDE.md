@@ -364,3 +364,43 @@ Server Endpoints (20+): ALL PASS
     /swap/swap-execute, /park/generate, /api/whale/watch
   - Credit: /deposit/credit-test, /deposit/deposit-address
 ```
+
+## Post-Hackathon Roadmap
+
+### Fine-Tuning Plan (3 weeks post-hackathon)
+- Fine-tune Llama 3 70B on 1000+ crypto-specific examples (Solana dApps, DeFi, trading, memecoins, on-chain data, agent personality)
+- Data sources: Supabase daily_log + chat history exports, 500 Claude-generated Q&A, 200 manual edge cases
+- Format: JSONL messages pairs
+- Platform: Together.ai or Fireworks.ai ($50-200 one-time, ~$0.20/1M tokens inference)
+- Goal: reduce system prompt by ~50%, model natively speaks crypto
+
+### Post Fine-Tune Routing
+- Custom Llama (Together.ai) → all crypto queries
+- Gemini 2.0 Flash → general knowledge fallback
+- Groq → memory extraction (cheap/fast)
+
+### Current Multi-Model Routing
+- Groq (free) → greetings, price checks, simple chat
+- Gemini 2.0 Flash (free, 1500/day) → complex analysis, research, trading advice
+- GPT-4o-mini → backup if Gemini fails (needs OpenAI key)
+
+### Feature Tiers
+- **Month 1**: On-chain history (Helius), tx simulation (Jupiter), push notifications, routing optimization, fine-tune model
+- **Month 2-3**: PnL charts, strategy backtesting, multi-program (Raydium/Orca/Tensor), NFT awareness, agent tipping, home widget
+- **Month 4+**: Agent marketplace, copy-agent, reputation NFTs, DAO governance, cross-chain (Wormhole), on-chain .os domain NFTs
+
+### Revenue Targets
+- Month 1 (50 users): ~$140/month (AI credits + Jupiter referral + .os domains)
+- Month 3 (500 users): ~$1,400/month
+- Month 6 (5000 users): $10,000/month target
+
+### Competitive Moat
+1. Persistent memory (unique in crypto)
+2. Mobile-first with embedded wallet
+3. Agent Park social layer
+4. Fine-tuned crypto AI
+5. .os identity system
+6. Revenue from day 1 (not token-dependent)
+
+### Pitch Line
+"OpenClaw gave AI agents a computer. OpenSeeker gives AI agents a wallet."

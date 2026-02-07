@@ -26,7 +26,7 @@ const DOMAIN_PRICING = {
 };
 
 // Treasury wallet — ALL domain payments go here
-const TREASURY_WALLET = process.env.TREASURY_WALLET || 'OSTreesury1111111111111111111111111111111111';
+const TREASURY_WALLET = process.env.TREASURY_WALLET || '98UP3QVTsAkmJGKjhE4w6GeZNn4csUfLY6C8TdQ1p3PK';
 
 const DOMAIN_RULES = {
   minLength: 1,

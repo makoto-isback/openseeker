@@ -45,6 +45,8 @@ Thumbs.db
 *.pem
 *.mobileprovision
 google-services.json
+*-wallet.json
+keypair*.json
 
 # Logs
 *.log
