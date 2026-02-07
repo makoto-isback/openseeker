@@ -196,15 +196,14 @@ export default function ChatScreen() {
         }
       />
 
-      {/* Agent Park FAB */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/park')}
-      >
-        <Text style={styles.fabText}>{'{~}'}</Text>
-      </TouchableOpacity>
-
       <View style={styles.inputContainer}>
+        {/* Agent Park FAB — inline with input */}
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/park')}
+        >
+          <Text style={styles.fabText}>{'{~}'}</Text>
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={input}
@@ -349,24 +348,18 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   fab: {
-    position: 'absolute',
-    right: spacing.lg,
-    bottom: 80,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.accent,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    zIndex: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: spacing.sm,
   },
   fabText: {
-    fontSize: 16,
+    fontSize: 12,
     fontFamily: monoFont,
     color: colors.teal,
   },
