@@ -28,6 +28,16 @@ function cleanResponse(text) {
   // Remove "DATA:" prefix if AI accidentally left it
   cleaned = cleaned.replace(/DATA:\s*/g, '');
 
+  // Strip any leftover [SKILL:...] tags
+  cleaned = cleaned.replace(/\[SKILL:\w+(?::[^\]]*)?]/g, '');
+
+  // Strip markdown bold/italic
+  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1');
+  cleaned = cleaned.replace(/\*([^*]+)\*/g, '$1');
+
+  // Strip markdown headers
+  cleaned = cleaned.replace(/^#{1,3}\s+/gm, '');
+
   // Remove excessive newlines
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
 
