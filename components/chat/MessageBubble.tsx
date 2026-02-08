@@ -5,6 +5,8 @@ import { formatTime } from '../../utils/formatters';
 import { SkillCard } from './SkillCard';
 import { TerminalText } from './TerminalText';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { SpiritAnimal } from '../spirit/SpiritAnimal';
+import type { AnimalType } from '../spirit/animals';
 import type { Message } from '../../services/memory';
 
 // Error/system messages that should not animate
@@ -36,6 +38,8 @@ interface MessageBubbleProps {
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const agentName = useSettingsStore((s) => s.agentName);
+  const spiritAnimal = useSettingsStore((s) => s.spiritAnimal);
+  const osDomain = useSettingsStore((s) => s.osDomain);
   const [textDone, setTextDone] = useState(!shouldAnimate(message));
 
   const animate = shouldAnimate(message) && !textDone;
@@ -45,7 +49,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     <View style={[styles.container, isUser ? styles.userContainer : styles.assistantContainer]}>
       {!isUser && (
         <View style={styles.avatarRow}>
-          <Text style={styles.avatar}>(=^.^=)</Text>
+          {osDomain && spiritAnimal ? (
+            <View style={styles.spiritAvatar}>
+              <SpiritAnimal animal={spiritAnimal as AnimalType} size="chat" animated={true} />
+            </View>
+          ) : (
+            <Text style={styles.avatar}>(=^.^=)</Text>
+          )}
           <Text style={styles.agentName}>{agentName}</Text>
         </View>
       )}
@@ -114,6 +124,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' }),
     color: colors.teal,
+  },
+  spiritAvatar: {
+    width: 42,
+    height: 24,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   agentName: {
     fontSize: fontSize.xs,

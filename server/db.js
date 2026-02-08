@@ -100,6 +100,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_agent_daily_log_wallet ON agent_daily_log(wallet_address, date);
 `);
 
+// Add spirit_animal column if not exists
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN spirit_animal TEXT DEFAULT NULL`);
+  console.log('[DB] Added spirit_animal column to users');
+} catch (e) {
+  // Column already exists — ignore
+}
+
 console.log('[DB] Tables created/verified');
 
 // Prepared statements for common operations
@@ -157,6 +165,14 @@ const statements = {
   logX402Payment: db.prepare(`
     INSERT INTO x402_payments (wallet_address, endpoint, amount_usdc, tx_signature)
     VALUES (?, ?, ?, ?)
+  `),
+
+  // Spirit animal
+  setSpiritAnimal: db.prepare(`
+    UPDATE users SET spirit_animal = ?, updated_at = CURRENT_TIMESTAMP WHERE wallet_address = ?
+  `),
+  getSpiritAnimal: db.prepare(`
+    SELECT spirit_animal FROM users WHERE wallet_address = ?
   `),
 
   // Agent memory
@@ -289,6 +305,19 @@ function logX402Payment(walletAddress, endpoint, amountUsdc, txSignature) {
   statements.logX402Payment.run(walletAddress || '', endpoint, amountUsdc, txSignature || '');
 }
 
+// === Spirit animal functions ===
+
+function setSpiritAnimal(walletAddress, animal) {
+  getOrCreateUser(walletAddress);
+  statements.setSpiritAnimal.run(animal, walletAddress);
+  return { success: true };
+}
+
+function getSpiritAnimal(walletAddress) {
+  const row = statements.getSpiritAnimal.get(walletAddress);
+  return row ? row.spirit_animal : null;
+}
+
 // === Memory functions ===
 
 function getMemories(walletAddress, category) {
@@ -356,6 +385,9 @@ module.exports = {
   getFreeMessagesRemaining,
   decrementFreeMessages,
   logX402Payment,
+  // Spirit animal
+  setSpiritAnimal,
+  getSpiritAnimal,
   // Memory
   getMemories,
   saveMemory,

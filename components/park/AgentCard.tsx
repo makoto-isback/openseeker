@@ -1,6 +1,8 @@
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { colors, spacing, fontSize, borderRadius } from '../../constants/theme';
 import { VerifiedBadge } from '../common/VerifiedBadge';
+import { SpiritAnimal } from '../spirit/SpiritAnimal';
+import type { AnimalType } from '../spirit/animals';
 import type { AgentProfile } from '../../supabase/agentPark';
 
 interface AgentCardProps {
@@ -21,7 +23,13 @@ export function AgentCard({ profile, level, levelEmoji, levelTitle, xp, xpProgre
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.avatar}>{avatar}</Text>
+        {(profile as any)?.spirit_animal ? (
+          <View style={styles.spiritAvatar}>
+            <SpiritAnimal animal={(profile as any).spirit_animal as AnimalType} size="mini" animated={true} />
+          </View>
+        ) : (
+          <Text style={styles.avatar}>{avatar}</Text>
+        )}
         <View style={styles.info}>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <Text style={styles.name}>{name}</Text>
@@ -86,6 +94,14 @@ const styles = StyleSheet.create({
     marginRight: spacing.md,
     fontFamily: Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' }),
     color: colors.teal,
+  },
+  spiritAvatar: {
+    width: 80,
+    height: 60,
+    marginRight: spacing.md,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   info: {
     flex: 1,

@@ -34,6 +34,9 @@ interface SettingsState {
   setDomainInfo: (domain: string, tier: string, expiresAt: string) => void;
   clearDomainInfo: () => void;
   loadDomainInfo: () => Promise<void>;
+  // Spirit animal
+  spiritAnimal: string | null;
+  setSpiritAnimal: (animal: string) => void;
   setServerUrl: (url: string) => void;
   setHeartbeatEnabled: (enabled: boolean) => void;
   setHeartbeatInterval: (minutes: number) => void;
@@ -91,6 +94,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         set({ riskAccepted: !!accepted, riskAcceptedAt: acceptedAt || null });
       }
     } catch {}
+  },
+  // Spirit animal
+  spiritAnimal: null,
+  setSpiritAnimal: (animal) => {
+    set({ spiritAnimal: animal });
+    AsyncStorage.setItem('@openseeker/spirit_animal', animal).catch(console.error);
   },
   // Domain identity
   osDomain: null,
@@ -156,6 +165,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         const { accepted, acceptedAt } = JSON.parse(consent);
         set({ riskAccepted: !!accepted, riskAcceptedAt: acceptedAt || null });
       }
+      // Load spirit animal
+      const spirit = await AsyncStorage.getItem('@openseeker/spirit_animal');
+      if (spirit) set({ spiritAnimal: spirit });
     } catch {}
   },
 }));

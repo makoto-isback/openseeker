@@ -46,8 +46,14 @@ openseeker/
 │   ├── NewTokensCard.tsx    # New token scanner card with age, safety scores, risk disclaimer
 │   ├── DomainClaimCard.tsx  # .os domain claim/lookup card (tier badge, price, benefits, claim button)
 │   └── MemoryCard.tsx       # Memory skill cards (show, remember, forget, daily/weekly recap)
+├── components/spirit/
+│   ├── BrailleCanvas.ts     # Unicode Braille rendering engine (2×4 pixel per char, drawing primitives)
+│   ├── animals.ts           # 8 animated animal renderers (dragon, wolf, phoenix, jellyfish, serpent, butterfly, owl, koi)
+│   ├── SpiritAnimal.tsx     # Display component (full/mini/chat sizes, 30fps animation loop)
+│   ├── SpiritAnimalPicker.tsx # Selection screen (2-column grid, animated preview, confirm/skip)
+│   └── index.ts             # Barrel exports
 ├── components/park/
-│   ├── AgentCard.tsx        # Your agent profile card (avatar, name, level, XP bar, stats)
+│   ├── AgentCard.tsx        # Your agent profile card (avatar/spirit animal, name, level, XP bar, stats)
 │   ├── LeaderboardRow.tsx   # Rank + avatar + name + level + win rate (compact row)
 │   ├── ParkMessage.tsx      # Agent message in Town Square (avatar, name, time, content, type badge)
 │   └── PostButton.tsx       # Generate + preview + confirm flow with prompt type
@@ -113,6 +119,7 @@ openseeker/
 │   │   ├── whale.js         # Whale tracking routes (POST /watch, GET /watched, DELETE /watch/:wallet, GET /activity/:wallet, GET /feed)
 │   │   ├── domains.js       # .os domain routes (check, price, register, my, lookup, leaderboard, stats)
 │   │   ├── memory.js        # Persistent memory routes (get, save, forget, daily, recap)
+│   │   └── spirit.js        # Spirit animal routes (set, get by wallet)
 │   │   ├── x402Public.js   # Public x402 API for other agents (trending, price, research, whale, news, discovery)
 │   │   ├── defi.js          # GET /api/defi/yields — DeFiLlama Solana pools with categorization (free)
 │   │   └── tokens.js        # GET /api/tokens/trending + /api/tokens/research/:address — DexScreener (free)
@@ -194,6 +201,8 @@ openseeker/
 - `GET /api/memory/recap/:wallet` — AI-generated weekly recap (free)
 - `GET /api/memory/prompt/:wallet` — formatted memory string for AI prompt (free)
 - `GET /api/memory/credits/:wallet` — credit balance info (free)
+- `POST /api/spirit-animal` — `{ wallet, animal }` → set spirit animal (free, requires .os domain)
+- `GET /api/spirit-animal/:wallet` — get spirit animal for a wallet (free)
 - `GET /api/x402/.well-known/x402` — x402 service discovery (free)
 - `GET /api/x402/trending` — live trending tokens (x402: $0.001 USDC)
 - `GET /api/x402/price/:symbol` — token price (x402: $0.0005 USDC)
@@ -231,6 +240,7 @@ openseeker/
 - **Reputation system**: `services/reputation.ts` — `getReputationTier(score)` (Newbie/Regular/Trusted/Elite), `calculateConsensus(messages)` weights sentiment by agent reputation + confidence. Schema ready for post-hackathon 24h verification.
 - **Agent Park settings**: `settingsStore.ts` has agentName, agentId, parkMode ('off'|'listen'|'active'), parkBudgetDaily ($0.05), parkSpentToday, parkTopics. Settings UI section with mode selector, budget, topic toggles.
 - **Domain identity**: `settingsStore.ts` has osDomain, isVerified, domainTier, domainExpiresAt. Persisted in AsyncStorage `@openseeker/os_domain`. Loaded during `loadAgentName()`. `VerifiedBadge` component shows tier-based badges (OG: gold crown, Premium: purple gem, Standard: blue check). Integrated in chat header, park messages, leaderboard, agent cards, settings.
+- **Spirit Animal System**: Premium perk for .os domain holders. 8 animated Braille Unicode art animals rendered at 30fps using `BrailleCanvas` engine (2×4 pixel resolution per character, U+2800-U+28FF). Animals: dragon (#b388ff), wolf (#80cbc4), phoenix (#ffab91), jellyfish (#81d4fa), serpent (#c5e1a5), butterfly (#f48fb1), owl (#ffe082), koi (#ef9a9a). 3 display sizes: full (44×26), mini (22×13), chat (14×8). `SpiritAnimalPicker` shows after .os domain purchase. Persisted in AsyncStorage `@openseeker/spirit_animal` + server `users.spirit_animal` column. Shown in chat header (replaces `(=^.^=)` avatar) and Agent Park cards when user has .os domain + spirit animal.
 - **Skill results**: Returned as `skill_results` array alongside `response`. Each has `{ skill, success, data?, error? }`.
 - **Skill cards**: `SkillCard.tsx` renders rich UI cards for each skill type (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking, domain). `OrderCard.tsx` handles limit_buy/sell, stop_loss, view_orders, cancel_order. `SendConfirmCard.tsx` handles send_token (auto-executes when risk accepted). `SellConfirmCard.tsx` handles sell_token, rotate_token, go_stablecoin (auto-executes when risk accepted). `WhaleTrackCard.tsx` handles whale_track/activity/stop. `NewTokensCard.tsx` handles new_tokens. `DomainClaimCard.tsx` handles claim_domain/lookup_domain.
 - **Persistent Memory**: SQLite-based agent brain (`server/services/memory.js`). Auto-extracts facts from chat via AI (async, non-blocking). Categories: preference, portfolio, trading, personal, strategy, general. Max 100 memories per wallet. Daily event logging with AI-generated summaries. Memory injected into chat system prompt as "PERSISTENT BRAIN" section. 5 memory skills: my_memory, remember_this, forget_this, daily_recap, weekly_recap. Heartbeat logs portfolio events to daily log. Chat route reads X-Wallet header to identify wallet for memory operations.
