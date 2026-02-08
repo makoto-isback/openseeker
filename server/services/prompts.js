@@ -142,6 +142,12 @@ Memory:
 [MEMORY] / [REMEMBER:fact] / [FORGET:search]
 [RECAP:daily] / [RECAP:weekly]
 
+Historical Data (Powered by Allium):
+[HISTORY:token,timeframe] — Price history with OHLC. timeframe: 1h, 4h, 24h, 7d, 30d. "SOL chart 7d" → [HISTORY:SOL,7d]
+[PNL] — Wallet profit/loss breakdown by token (realized + unrealized)
+[TX_HISTORY:limit?] — Recent transaction history with labels. "last 5 txs" → [TX_HISTORY:5]
+[PRICE_AT:token,date] — Historical price at a date. "SOL price on Jan 15" → [PRICE_AT:SOL,2025-01-15]
+
 RULES:
 - Only use tools when you NEED live data. General knowledge → just answer.
 - One tool tag per data need. Multiple allowed: [PRICE:SOL] [PRICE:WIF]
@@ -231,7 +237,9 @@ Rules:
 - For trending/new tokens: add risk disclaimer, never recommend buying
 - For send_token: warn transfers are irreversible, user must confirm
 - NEVER display "DATA:" prefix — rewrite everything naturally
-- Max 1-2 emojis per message`;
+- Max 1-2 emojis per message
+- If data source is "allium", naturally mention "via Allium" once (e.g. "According to Allium data..." or "Allium shows...")
+- Do NOT display raw "Powered by Allium" — weave attribution naturally`;
 
   return [
     { role: 'system', content: systemContent },
@@ -258,6 +266,32 @@ function formatSkillDataForAI(skill, data) {
 
     case 'swap_quote':
       return `${data.inAmount} ${data.from || data.inputSymbol || '?'} → ${data.outAmount} ${data.to || data.outputSymbol || '?'} rate=${data.rate} impact=${data.priceImpact}% route=${data.route || 'direct'} source=${data.source || 'jupiter'}`;
+
+    case 'price_history': {
+      const s = data.stats || {};
+      return `${data.symbol} ${data.timeframe} history: high=$${s.high?.toFixed(4) || '?'} low=$${s.low?.toFixed(4) || '?'} open=$${s.open?.toFixed(4) || '?'} close=$${s.close?.toFixed(4) || '?'} change=${s.changePercent != null ? s.changePercent.toFixed(2) + '%' : '?'} dataPoints=${data.dataPoints} source=${data.source}`;
+    }
+
+    case 'wallet_pnl':
+      if (data.totalBalance != null) {
+        return `PnL: balance=$${data.totalBalance.toFixed(2)} realized=$${data.totalRealizedPnl?.toFixed(2) || '0'} unrealized=$${data.totalUnrealizedPnl?.toFixed(2) || '0'} (${data.totalUnrealizedPnlPercent != null ? (data.totalUnrealizedPnlPercent * 100).toFixed(1) + '%' : '?'}) tokens=${(data.topTokens || []).length} source=${data.source}`;
+      }
+      return data.message || 'PnL data unavailable';
+
+    case 'tx_history':
+      if (data.transactions?.length > 0) {
+        const txSummary = data.transactions.slice(0, 5).map(tx =>
+          `${tx.timestamp}: ${tx.labels?.join(',') || 'tx'} (${tx.transfers?.length || 0} transfers)`
+        ).join('; ');
+        return `Recent txs (${data.total}): ${txSummary} source=${data.source}`;
+      }
+      return data.message || 'No transactions found';
+
+    case 'price_at_time':
+      if (data.price != null) {
+        return `${data.symbol} on ${data.requestedDate}: $${data.price.toFixed(4)} (high=$${data.high?.toFixed(4) || '?'} low=$${data.low?.toFixed(4) || '?'}) source=${data.source}`;
+      }
+      return data.message || 'Historical price unavailable';
 
     default:
       // Fallback: compact JSON (remove nulls and empty arrays)

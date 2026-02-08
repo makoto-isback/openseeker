@@ -9,7 +9,7 @@ OpenSeeker is a crypto-native AI companion app for the Solana Seeker phone. Buil
 - **Storage**: AsyncStorage (keys prefixed `@openseeker/`)
 - **Server**: Express.js (in `server/` with its own package.json)
 - **AI**: Multi-model routing (Groq → Gemini → OpenAI fallback chain) with tool tag system
-- **Prices**: CoinGecko free API with 60s in-memory cache (extends to 5min on 429)
+- **Prices**: CoinGecko free API with 60s in-memory cache (extends to 5min on 429) + Allium enterprise blockchain data (historical prices, PnL, tx history)
 - **Notifications**: expo-notifications (local push)
 - **Background**: expo-background-fetch + expo-task-manager
 - **Payments**: x402 standard protocol (x402-solana + PayAI facilitator) + legacy credit system fallback. 100 free messages per wallet, then USDC per-request via x402.
@@ -127,7 +127,7 @@ openseeker/
 │       ├── aiRouter.js      # Multi-model routing: Groq 70b → Gemini 2.0 Flash → OpenAI fallback chain
 │       ├── coingecko.js     # CoinGecko API: getPrice, getPrices, getMarketData (60s cache, 5min on 429)
 │       ├── prompts.js       # Two-pass prompt builder (tool tag intent detection + result formatting)
-│       ├── skills.js        # Skill registry: 36 skills + tool tag parser (TOOL_TAG_MAP, parseToolTags, cleanToolTags)
+│       ├── skills.js        # Skill registry: 40 skills + tool tag parser (TOOL_TAG_MAP, parseToolTags, cleanToolTags)
 │       ├── jupiter.js       # Jupiter Quote + Swap Transaction APIs with mock fallback
 │       ├── solscan.js       # Mock whale transaction data
 │       ├── tokenResearch.js # Token safety analysis (CoinGecko + heuristics)
@@ -135,7 +135,8 @@ openseeker/
 │       ├── walletParser.js  # Server-side wallet markdown parser
 │       ├── memory.js        # Persistent agent memory service (SQLite-backed)
 │       ├── solana.js        # On-chain payment verification (domain registration)
-│       └── x402Handler.js   # x402-solana X402PaymentHandler wrapper + pricing tiers
+│       ├── x402Handler.js   # x402-solana X402PaymentHandler wrapper + pricing tiers
+│       └── allium.js        # Allium blockchain data API client (prices, PnL, txs, history)
 ├── app.json
 ├── index.js                 # Entry point — polyfills (fast-text-encoding, @ethersproject/shims) before expo-router
 ├── metro.config.js          # Metro bundler config — Privy package export overrides
@@ -199,6 +200,7 @@ openseeker/
 - `GET /api/x402/research/:token` — deep token research (x402: $0.005 USDC)
 - `GET /api/x402/whale-alerts` — whale movements (x402: $0.002 USDC)
 - `GET /api/x402/news` — crypto news (x402: $0.001 USDC)
+- `GET /api/x402/history/:symbol` — historical price data with OHLC, Powered by Allium (x402: $0.003 USDC, `?timeframe=24h`)
 
 ## Architecture Conventions
 - **Entry point**: `expo-router/entry` (set in package.json `main`)
@@ -223,8 +225,8 @@ openseeker/
 - **Theme**: Dark theme (#0D0D0D bg). All colors/spacing from `constants/theme.ts`. No inline magic numbers.
 - **Server AI**: Multi-model routing via `aiRouter.js`. Groq 70b (free, fast) → Gemini 2.0 Flash (free, 1500/day) → OpenAI GPT-4o-mini (paid backup). Groq 8b fallback removed — when 70b hits TPD limit, skips directly to Gemini because 8b can't follow tool tag instructions. AI complexity classification routes simple queries to Groq, complex to Gemini.
 - **Two-pass tool system**: Pass 1 detects intent via `[TAG:args]` tool tags in AI response (e.g. `[PRICE:SOL]`, `[SWAP:SOL,WIF,1]`). Skills execute. Pass 2 formats results in personality.
-- **Tool tag format**: `[TAG_NAME:arg1,arg2,...]` — compact positional args. Parsed by `parseToolTags()` in `skills.js` using `TOOL_TAG_MAP` (33 entries). Falls back to legacy `[SKILL:name:params]` format via `parseSkillTags()`. Special cases: `ORDER` tag uses first arg as type (limit_buy/limit_sell/stop_loss), `RECAP` picks daily/weekly handler.
-- **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain, my_memory, remember_this, forget_this, daily_recap, weekly_recap.
+- **Tool tag format**: `[TAG_NAME:arg1,arg2,...]` — compact positional args. Parsed by `parseToolTags()` in `skills.js` using `TOOL_TAG_MAP` (37 entries). Falls back to legacy `[SKILL:name:params]` format via `parseSkillTags()`. Special cases: `ORDER` tag uses first arg as type (limit_buy/limit_sell/stop_loss), `RECAP` picks daily/weekly handler.
+- **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain, my_memory, remember_this, forget_this, daily_recap, weekly_recap, price_history, wallet_pnl, tx_history, price_at_time.
 - **Park skills**: `park_digest` summarizes recent park messages (client sends park_context). `park_consensus` aggregates agent opinions on a token weighted by reputation. `park_post` posts to park (requires parkMode === 'active'). Park context injected in chat route like wallet_content.
 - **Reputation system**: `services/reputation.ts` — `getReputationTier(score)` (Newbie/Regular/Trusted/Elite), `calculateConsensus(messages)` weights sentiment by agent reputation + confidence. Schema ready for post-hackathon 24h verification.
 - **Agent Park settings**: `settingsStore.ts` has agentName, agentId, parkMode ('off'|'listen'|'active'), parkBudgetDaily ($0.05), parkSpentToday, parkTopics. Settings UI section with mode selector, budget, topic toggles.
@@ -232,6 +234,7 @@ openseeker/
 - **Skill results**: Returned as `skill_results` array alongside `response`. Each has `{ skill, success, data?, error? }`.
 - **Skill cards**: `SkillCard.tsx` renders rich UI cards for each skill type (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking, domain). `OrderCard.tsx` handles limit_buy/sell, stop_loss, view_orders, cancel_order. `SendConfirmCard.tsx` handles send_token (auto-executes when risk accepted). `SellConfirmCard.tsx` handles sell_token, rotate_token, go_stablecoin (auto-executes when risk accepted). `WhaleTrackCard.tsx` handles whale_track/activity/stop. `NewTokensCard.tsx` handles new_tokens. `DomainClaimCard.tsx` handles claim_domain/lookup_domain.
 - **Persistent Memory**: SQLite-based agent brain (`server/services/memory.js`). Auto-extracts facts from chat via AI (async, non-blocking). Categories: preference, portfolio, trading, personal, strategy, general. Max 100 memories per wallet. Daily event logging with AI-generated summaries. Memory injected into chat system prompt as "PERSISTENT BRAIN" section. 5 memory skills: my_memory, remember_this, forget_this, daily_recap, weekly_recap. Heartbeat logs portfolio events to daily log. Chat route reads X-Wallet header to identify wallet for memory operations.
+- **Allium blockchain data**: Enterprise-grade on-chain data via `server/services/allium.js`. Base URL `https://api.allium.so/api/v1/developer`, auth via `X-API-KEY` header. 4 skills: price_history (OHLC candles, 5m-1d granularity), wallet_pnl (realized + unrealized P&L per token), tx_history (enriched transactions with labels), price_at_time (historical price at a specific date). All ADDITIVE — graceful fallback if `ALLIUM_API_KEY` not set or API fails. PnL auto-injected into wallet context in chat route. Attribution: "Powered by Allium" in responses. Public x402 API endpoint: `/api/x402/history/:symbol` ($0.003 USDC).
 - **CoinGecko**: 60s in-memory cache (extends to 5min on 429 rate limit). Symbol→ID mapping in `coingecko.js`. Mock fallback on API failure.
 - **Jupiter**: Swap quotes + swap transactions via `api.jup.ag/swap/v1`. Falls back to mock rates/transactions when API unavailable.
 
@@ -253,4 +256,5 @@ openseeker/
 - x402-solana uses CAIP-2 network identifiers (e.g. `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` for devnet). Amounts in atomic units: $0.001 = '1000', $0.002 = '2000'
 - x402Gate checks: free messages → PAYMENT-SIGNATURE (x402 standard) → X-Wallet (legacy credits) → 402. This order ensures backward compatibility
 - Liquid staking mints: JitoSOL (`J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn`), mSOL (`mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So`), bSOL (`bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1`)
+- Allium API: `ALLIUM_API_KEY` env var required for historical data features. Without it, price_history/wallet_pnl/tx_history/price_at_time return fallback messages. Allium uses POST for all endpoints (not GET). Token addresses are Solana mint addresses — resolved via MINT_MAP from jupiter.js. PnL endpoint is beta. Price history granularity: 15s (5d retention), 1m/5m (30d), 1h/1d (unlimited). Max 50 tokens per price history request, 200 per latest price request.
 

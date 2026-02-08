@@ -49,6 +49,7 @@ const PRICING = {
   research: '5000',         // $0.005
   whale_alerts: '2000',     // $0.002
   news: '1000',             // $0.001
+  history: '3000',          // $0.003 (Allium historical data)
 };
 
 /**

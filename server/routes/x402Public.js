@@ -67,6 +67,22 @@ router.get('/whale-alerts', x402Gate('whale_alerts'), async (req, res) => {
   }
 });
 
+// GET /api/x402/history/:symbol — Historical price data (Powered by Allium)
+router.get('/history/:symbol', x402Gate('history'), async (req, res) => {
+  try {
+    const result = await executeSkill('price_history', {
+      token: req.params.symbol,
+      timeframe: req.query.timeframe || '24h',
+    });
+    res.json({
+      data: result.data || result,
+      x402: { paid: req.x402?.paid },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/x402/news — Latest crypto news
 router.get('/news', x402Gate('news'), async (req, res) => {
   try {
@@ -90,7 +106,7 @@ router.get('/.well-known/x402', (req, res) => {
   res.json({
     x402Version: 2,
     name: 'OpenSeeker',
-    description: 'Crypto AI companion with real-time Solana data — trending tokens, price feeds, token research, whale alerts, and news',
+    description: 'Crypto AI companion with real-time Solana data — trending tokens, price feeds, token research, whale alerts, news, and historical data (Powered by Allium)',
     network: NETWORK,
     treasury: TREASURY_WALLET,
     asset: USDC_ADDRESS,
@@ -129,6 +145,13 @@ router.get('/.well-known/x402', (req, res) => {
         description: 'Latest crypto news aggregated from multiple sources',
         price: '$0.001 USDC',
         amount: PRICING.news,
+      },
+      {
+        resource: `${baseUrl}/api/x402/history/:symbol`,
+        method: 'GET',
+        description: 'Historical price data with OHLC (Powered by Allium). Query: ?timeframe=24h (1h|4h|24h|7d|30d)',
+        price: '$0.003 USDC',
+        amount: PRICING.history,
       },
     ],
   });

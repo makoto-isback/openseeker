@@ -10,6 +10,7 @@ const {
   logDailyEvent,
   getMemoryCount,
 } = require('../services/memory');
+const allium = require('../services/allium');
 
 const router = express.Router();
 
@@ -81,9 +82,23 @@ router.post('/', x402Gate('chat_standard', { freeMessages: true }), async (req, 
       }
     }
 
+    // Enhance wallet context with Allium PnL (non-blocking, graceful fallback)
+    let enrichedWallet = wallet || '';
+    if (walletAddress && allium.isAvailable()) {
+      try {
+        const pnlData = await allium.getWalletPnL(walletAddress);
+        if (pnlData) {
+          const pnlSummary = `\nPnL (via Allium): Total $${pnlData.totalBalance.toFixed(2)} | Realized $${pnlData.totalRealizedPnl.toFixed(2)} | Unrealized $${pnlData.totalUnrealizedPnl.toFixed(2)}${pnlData.totalUnrealizedPnlPercent != null ? ` (${(pnlData.totalUnrealizedPnlPercent * 100).toFixed(1)}%)` : ''}`;
+          enrichedWallet = (enrichedWallet ? enrichedWallet + pnlSummary : pnlSummary);
+        }
+      } catch (err) {
+        console.warn('[Chat] Allium PnL enrichment failed (non-blocking):', err.message);
+      }
+    }
+
     // === Pass 1: Intent detection ===
     const pass1Messages = buildChatPrompt({
-      soul, memory, context, wallet, message, history, agent_name,
+      soul, memory, context, wallet: enrichedWallet, message, history, agent_name,
       persistentMemory, memoryCount,
     });
 
@@ -137,6 +152,10 @@ router.post('/', x402Gate('chat_standard', { freeMessages: true }), async (req, 
         tag.params.park_mode = park_mode || 'listen';
       }
       if (['my_memory', 'remember_this', 'forget_this', 'daily_recap', 'weekly_recap'].includes(tag.skill)) {
+        tag.params.wallet_address = walletAddress;
+      }
+      // Inject wallet address for Allium PnL + tx history skills
+      if (['wallet_pnl', 'tx_history'].includes(tag.skill)) {
         tag.params.wallet_address = walletAddress;
       }
 

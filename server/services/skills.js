@@ -5,6 +5,7 @@ const { analyze } = require('./tokenResearch');
 const { getNews } = require('./news');
 const { parseWalletHoldings } = require('./walletParser');
 const { getCached, setCache } = require('../utils/cache');
+const allium = require('./allium');
 
 // Liquid staking token mints
 const LIQUID_STAKING_TOKENS = {
@@ -1019,6 +1020,152 @@ const skills = {
       message: `Stake ${stakeAmount} SOL → ${lstInfo.name}${apy ? ` (${apy.toFixed(1)}% APY)` : ''}`,
     };
   },
+
+  // === ALLIUM BLOCKCHAIN DATA SKILLS ===
+
+  price_history: async ({ token, symbol, timeframe }) => {
+    const t = token || symbol;
+    if (!t) throw new Error('token or symbol param required');
+    const tf = timeframe || '24h';
+
+    // Try Allium first
+    const alliumData = await allium.getPriceHistory(t, tf);
+    if (alliumData) {
+      return {
+        symbol: t.toUpperCase(),
+        timeframe: tf,
+        dataPoints: alliumData.dataPoints,
+        stats: alliumData.stats,
+        prices: alliumData.prices.slice(-20), // Last 20 data points for display
+        source: 'allium',
+        attribution: 'Powered by Allium',
+      };
+    }
+
+    // Fallback: use CoinGecko current price as single data point
+    const current = await getMarketData(t);
+    return {
+      symbol: t.toUpperCase(),
+      timeframe: tf,
+      dataPoints: 1,
+      stats: {
+        high: current.price,
+        low: current.price,
+        open: current.price,
+        close: current.price,
+        changePercent: current.change_24h,
+      },
+      prices: [],
+      source: 'coingecko_fallback',
+      attribution: 'Historical data requires Allium API key',
+    };
+  },
+
+  wallet_pnl: async ({ wallet_address }) => {
+    if (!wallet_address) {
+      return { error: 'No wallet connected — cannot fetch PnL data.' };
+    }
+
+    // Try Allium first
+    const pnlData = await allium.getWalletPnL(wallet_address);
+    if (pnlData) {
+      return {
+        wallet: wallet_address.slice(0, 8) + '...',
+        totalBalance: pnlData.totalBalance,
+        totalRealizedPnl: pnlData.totalRealizedPnl,
+        totalUnrealizedPnl: pnlData.totalUnrealizedPnl,
+        totalUnrealizedPnlPercent: pnlData.totalUnrealizedPnlPercent,
+        topTokens: pnlData.tokens.slice(0, 10).map(t => ({
+          address: t.tokenAddress?.slice(0, 8) + '...',
+          avgCost: t.averageCost,
+          currentPrice: t.currentPrice,
+          balance: t.currentBalance,
+          realizedPnl: t.realizedPnl,
+          unrealizedPnl: t.unrealizedPnl,
+          unrealizedPnlPercent: t.unrealizedPnlPercent,
+        })),
+        source: 'allium',
+        attribution: 'Powered by Allium',
+      };
+    }
+
+    // Fallback message
+    return {
+      wallet: wallet_address.slice(0, 8) + '...',
+      message: 'PnL data requires Allium API key. Use [PORTFOLIO] for current holdings.',
+      source: 'fallback',
+    };
+  },
+
+  tx_history: async ({ wallet_address, limit }) => {
+    if (!wallet_address) {
+      return { error: 'No wallet connected — cannot fetch transaction history.' };
+    }
+
+    const txLimit = parseInt(limit) || 10;
+
+    // Try Allium first
+    const txData = await allium.getWalletTransactions(wallet_address, txLimit);
+    if (txData) {
+      return {
+        wallet: wallet_address.slice(0, 8) + '...',
+        transactions: txData.transactions.map(tx => ({
+          hash: tx.hash?.slice(0, 12) + '...',
+          timestamp: tx.timestamp,
+          labels: tx.labels,
+          transfers: tx.transfers.slice(0, 5),
+          activities: tx.activities,
+          fee: tx.fee,
+        })),
+        total: txData.total,
+        source: 'allium',
+        attribution: 'Powered by Allium',
+      };
+    }
+
+    // Fallback message
+    return {
+      wallet: wallet_address.slice(0, 8) + '...',
+      message: 'Transaction history requires Allium API key. Check Solscan for full history.',
+      source: 'fallback',
+    };
+  },
+
+  price_at_time: async ({ token, symbol, timestamp, date }) => {
+    const t = token || symbol;
+    if (!t) throw new Error('token or symbol param required');
+    const ts = timestamp || date;
+    if (!ts) throw new Error('timestamp or date param required (e.g. "2025-01-15" or "2025-01-15T12:00:00Z")');
+
+    // Normalize timestamp — if just a date, add midnight UTC
+    let isoTimestamp = ts;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ts)) {
+      isoTimestamp = `${ts}T00:00:00Z`;
+    }
+
+    // Try Allium
+    const priceData = await allium.getPriceAtTime(t, isoTimestamp);
+    if (priceData) {
+      return {
+        symbol: t.toUpperCase(),
+        requestedDate: ts,
+        price: priceData.price,
+        high: priceData.high,
+        low: priceData.low,
+        actualTimestamp: priceData.actualTimestamp,
+        source: 'allium',
+        attribution: 'Powered by Allium',
+      };
+    }
+
+    // Fallback — no historical data available
+    return {
+      symbol: t.toUpperCase(),
+      requestedDate: ts,
+      message: 'Historical price lookup requires Allium API key.',
+      source: 'fallback',
+    };
+  },
 };
 
 /**
@@ -1113,6 +1260,11 @@ const TOOL_TAG_MAP = {
   PARK_DIGEST:     { handler: 'park_digest',       argMap: [] },
   PARK_CONSENSUS:  { handler: 'park_consensus',    argMap: ['token'] },
   PARK_POST:       { handler: 'park_post',         argMap: ['content'] },
+  // Allium blockchain data tools
+  HISTORY:         { handler: 'price_history',     argMap: ['token', 'timeframe'] },
+  PNL:             { handler: 'wallet_pnl',        argMap: [] },
+  TX_HISTORY:      { handler: 'tx_history',        argMap: ['limit'] },
+  PRICE_AT:        { handler: 'price_at_time',     argMap: ['token', 'timestamp'] },
 };
 
 /**
