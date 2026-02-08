@@ -263,6 +263,7 @@ export interface Message {
     freeRemaining?: number;
     amount?: string;
   };
+  isNew?: boolean; // true for messages just created in this session (animate)
 }
 
 export async function readMessages(): Promise<Message[]> {

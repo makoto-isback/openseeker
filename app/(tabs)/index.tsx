@@ -107,10 +107,24 @@ export default function ChatScreen() {
     return () => showSub.remove();
   }, []);
 
-  // Auto-scroll when new messages arrive
+  // Auto-scroll when new messages arrive + during typing animation
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 150);
+      // Keep scrolling during terminal text animation (content grows as chars type)
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg?.role === 'assistant' && lastMsg?.isNew) {
+        const scrollInterval = setInterval(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 300);
+        // Stop after max expected animation time (text.length * 25ms + buffer)
+        const maxTime = Math.min((lastMsg.content?.length || 100) * 25 + 1000, 15000);
+        const stopTimeout = setTimeout(() => clearInterval(scrollInterval), maxTime);
+        return () => {
+          clearInterval(scrollInterval);
+          clearTimeout(stopTimeout);
+        };
+      }
     }
   }, [messages.length, isLoading]);
 

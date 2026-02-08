@@ -13,6 +13,7 @@ import { ensureWatching } from '../services/priceWatcher';
 import { useSettingsStore } from './settingsStore';
 import { addWatchedWallet, removeWatchedWallet } from '../services/whaleCopyTrade';
 import { getAlerts, removeAlert } from '../services/alerts';
+import { skipCurrentAnimation } from '../components/chat/TerminalText';
 
 interface ChatState {
   messages: Message[];
@@ -33,7 +34,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadMessages: async () => {
     const messages = await readMessages();
-    set({ messages, messageCount: messages.length });
+    // History messages should not animate
+    set({ messages: messages.map(m => ({ ...m, isNew: false })), messageCount: messages.length });
   },
 
   addMessage: async (role, content, skillResults) => {
@@ -43,6 +45,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content,
       timestamp: Date.now(),
       skillResults,
+      isNew: role === 'assistant', // Only AI messages animate
     };
     const messages = [...get().messages, message];
     set({ messages });
@@ -52,6 +55,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   sendMessage: async (text: string) => {
     const { addMessage } = get();
+
+    // Skip any ongoing terminal text animation
+    skipCurrentAnimation();
 
     // 1. Build history BEFORE adding current message (to avoid duplication)
     const prevMessages = get().messages;
