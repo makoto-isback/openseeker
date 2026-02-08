@@ -12,7 +12,7 @@
  * Mode 3 — Test Mode:
  *   Requests with X-Payment "test:wallet:timestamp" for demos.
  */
-const { getOrCreateUser, deductSpend } = require('../db');
+const { getOrCreateUser, deductSpend, getReferrer, recordReferralEarning } = require('../db');
 
 const PRICE_TABLE = {
   '/chat': 0.002,
@@ -106,6 +106,15 @@ function handleCreditMode(req, res, next, wallet, price) {
   req.paymentVerified = true;
   req.userWallet = wallet;
   req.newBalance = result.newBalance;
+
+  // Track referral earning (10% revenue share)
+  try {
+    const referrer = getReferrer(wallet);
+    if (referrer) {
+      const referralAmount = price * 0.10;
+      recordReferralEarning(referrer, wallet, req.path, price, referralAmount, 'USDC');
+    }
+  } catch (e) { /* non-blocking */ }
 
   console.log(`[x402] ${req.path} — $${price} from ${wallet.slice(0, 8)}... (balance: $${result.newBalance.toFixed(4)})`);
   next();

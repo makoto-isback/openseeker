@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { DOMAIN_PRICING, TREASURY_WALLET, getTier, getPrice, validateName } = require('../config/domains');
+const { getReferrer, recordReferralEarning } = require('../db');
 const { verifyDomainPayment } = require('../services/solana');
 const { getPrice: getSOLPrice } = require('../services/priceCache');
 const { getCached, setCache } = require('../utils/cache');
@@ -225,6 +226,15 @@ router.post('/register', async (req, res) => {
       expiresAt: expiresAt.toISOString(),
       txSignature,
     });
+
+    // Track referral earning (10% of domain registration)
+    try {
+      const referrer = getReferrer(wallet);
+      if (referrer) {
+        const referralAmount = price * 0.10;
+        recordReferralEarning(referrer, wallet, 'domain_registration', price, referralAmount, 'SOL');
+      }
+    } catch (e) { /* non-blocking */ }
 
     console.log(`[Domains] Registered: ${domain} (${tier}) for ${wallet.slice(0, 8)}...`);
 

@@ -967,6 +967,37 @@ const skills = {
     };
   },
 
+  referral_stats: async ({ wallet_address }) => {
+    if (!wallet_address) {
+      return { error: 'No wallet connected — cannot fetch referral stats.' };
+    }
+    const {
+      getReferralCode, createReferralCode, getReferralCount,
+      getReferralEarnings, getUnpaidEarnings, getRecentEarnings,
+    } = require('../db');
+
+    let code = getReferralCode(wallet_address);
+    if (!code) {
+      const result = createReferralCode(wallet_address, null);
+      code = result.code;
+    }
+
+    const referralCount = getReferralCount(wallet_address);
+    const totalEarnings = getReferralEarnings(wallet_address);
+    const unpaidEarnings = getUnpaidEarnings(wallet_address);
+    const recentEarnings = getRecentEarnings(wallet_address);
+
+    return {
+      action: 'referral_stats',
+      code,
+      link: `https://openseeker.xyz/ref/${code}`,
+      referralCount,
+      totalEarnings,
+      unpaidEarnings,
+      recentEarnings,
+    };
+  },
+
   liquid_stake: async ({ token, amount }) => {
     const tokenKey = (token || 'JITOSOL').toUpperCase();
     const lstInfo = LIQUID_STAKING_TOKENS[tokenKey] || LIQUID_STAKING_TOKENS.JITOSOL;
@@ -1257,6 +1288,7 @@ const TOOL_TAG_MAP = {
   REMEMBER:        { handler: 'remember_this',     argMap: ['fact'] },
   FORGET:          { handler: 'forget_this',       argMap: ['search'] },
   RECAP:           { handler: null,                argMap: ['type'] }, // special: type determines handler
+  REFERRAL:        { handler: 'referral_stats',     argMap: [] },
   PARK_DIGEST:     { handler: 'park_digest',       argMap: [] },
   PARK_CONSENSUS:  { handler: 'park_consensus',    argMap: ['token'] },
   PARK_POST:       { handler: 'park_post',         argMap: ['content'] },

@@ -34,6 +34,10 @@ interface SettingsState {
   setDomainInfo: (domain: string, tier: string, expiresAt: string) => void;
   clearDomainInfo: () => void;
   loadDomainInfo: () => Promise<void>;
+  // Referral
+  referralCode: string | null;
+  setReferralCode: (code: string) => void;
+  loadReferralCode: () => Promise<void>;
   // Spirit animal
   spiritAnimal: string | null;
   setSpiritAnimal: (animal: string) => void;
@@ -93,6 +97,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         const { accepted, acceptedAt } = JSON.parse(raw);
         set({ riskAccepted: !!accepted, riskAcceptedAt: acceptedAt || null });
       }
+    } catch {}
+  },
+  // Referral
+  referralCode: null,
+  setReferralCode: (code) => {
+    set({ referralCode: code });
+    AsyncStorage.setItem('@openseeker/referral_code', code).catch(console.error);
+  },
+  loadReferralCode: async () => {
+    try {
+      const code = await AsyncStorage.getItem('@openseeker/referral_code');
+      if (code) set({ referralCode: code });
     } catch {}
   },
   // Spirit animal
@@ -168,6 +184,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // Load spirit animal
       const spirit = await AsyncStorage.getItem('@openseeker/spirit_animal');
       if (spirit) set({ spiritAnimal: spirit });
+      // Load referral code
+      const ref = await AsyncStorage.getItem('@openseeker/referral_code');
+      if (ref) set({ referralCode: ref });
     } catch {}
   },
 }));

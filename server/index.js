@@ -23,6 +23,7 @@ const memoryRouter = require('./routes/memory');
 const pricesRouter = require('./routes/prices');
 const x402PublicRouter = require('./routes/x402Public');
 const spiritRouter = require('./routes/spirit');
+const referralRouter = require('./routes/referral');
 const { buildRealX402Middleware } = require('./middleware/x402');
 
 const app = express();
@@ -68,6 +69,7 @@ app.use('/api/memory', memoryRouter);
 app.use('/api/prices', pricesRouter);
 app.use('/api/x402', x402PublicRouter);
 app.use('/api/spirit-animal', spiritRouter);
+app.use('/api/referral', referralRouter);
 
 // Log startup config
 console.log(`[Server] Port: ${PORT}`);

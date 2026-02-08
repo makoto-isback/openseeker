@@ -13,7 +13,7 @@
  */
 const { x402Handler, createRequirements, PRICING } = require('../services/x402Handler');
 const { getFreeMessagesRemaining, decrementFreeMessages, logX402Payment } = require('../db');
-const { getOrCreateUser, deductSpend } = require('../db');
+const { getOrCreateUser, deductSpend, getReferrer, recordReferralEarning } = require('../db');
 
 /**
  * Create x402 gate middleware for an Express route.
@@ -59,6 +59,18 @@ function x402Gate(tier, options = {}) {
 
                 logX402Payment(walletAddress, req.path, PRICING[tier] || '0', verified.transaction || '');
 
+                // Track referral earning (10% revenue share)
+                try {
+                  if (walletAddress) {
+                    const referrer = getReferrer(walletAddress);
+                    if (referrer) {
+                      const priceUsd = parseInt(PRICING[tier] || '2000') / 1_000_000;
+                      const referralAmount = priceUsd * 0.10;
+                      recordReferralEarning(referrer, walletAddress, req.path, priceUsd, referralAmount, 'USDC');
+                    }
+                  }
+                } catch (e) { /* non-blocking */ }
+
                 req.x402 = {
                   paid: true,
                   free: false,
@@ -98,6 +110,16 @@ function x402Gate(tier, options = {}) {
             req.paymentVerified = true;
             req.userWallet = walletAddress;
             req.newBalance = result.newBalance;
+
+            // Track referral earning (10% revenue share)
+            try {
+              const referrer = getReferrer(walletAddress);
+              if (referrer) {
+                const referralAmount = priceUsd * 0.10;
+                recordReferralEarning(referrer, walletAddress, req.path, priceUsd, referralAmount, 'USDC');
+              }
+            } catch (e) { /* non-blocking */ }
+
             console.log(`[x402Gate] ${req.path} — $${priceUsd} legacy credit from ${walletAddress.slice(0, 8)}...`);
             return next();
           }

@@ -142,6 +142,9 @@ Memory:
 [MEMORY] / [REMEMBER:fact] / [FORGET:search]
 [RECAP:daily] / [RECAP:weekly]
 
+Referral:
+[REFERRAL] — Show referral code, stats, earnings. "my referrals" → [REFERRAL]
+
 Historical Data (Powered by Allium):
 [HISTORY:token,timeframe] — Price history with OHLC. timeframe: 1h, 4h, 24h, 7d, 30d. "SOL chart 7d" → [HISTORY:SOL,7d]
 [PNL] — Wallet profit/loss breakdown by token (realized + unrealized)

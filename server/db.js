@@ -90,6 +90,37 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  -- Referral relationships
+  CREATE TABLE IF NOT EXISTS referrals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    referrer_wallet TEXT NOT NULL,
+    referred_wallet TEXT NOT NULL,
+    referral_code TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(referred_wallet)
+  );
+
+  -- Referral earnings log
+  CREATE TABLE IF NOT EXISTS referral_earnings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    referrer_wallet TEXT NOT NULL,
+    referred_wallet TEXT NOT NULL,
+    source TEXT NOT NULL,
+    gross_amount REAL NOT NULL,
+    referral_amount REAL NOT NULL,
+    currency TEXT DEFAULT 'SOL',
+    tx_signature TEXT,
+    paid BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  -- Referral codes
+  CREATE TABLE IF NOT EXISTS referral_codes (
+    wallet TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   -- Create indexes for faster queries
   CREATE INDEX IF NOT EXISTS idx_deposits_wallet ON deposits(wallet_address);
   CREATE INDEX IF NOT EXISTS idx_deposits_status ON deposits(status);
@@ -98,6 +129,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_agent_memory_wallet ON agent_memory(wallet_address);
   CREATE INDEX IF NOT EXISTS idx_agent_memory_category ON agent_memory(wallet_address, category);
   CREATE INDEX IF NOT EXISTS idx_agent_daily_log_wallet ON agent_daily_log(wallet_address, date);
+  CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_wallet);
+  CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON referral_earnings(referrer_wallet);
+  CREATE INDEX IF NOT EXISTS idx_referral_earnings_paid ON referral_earnings(paid);
 `);
 
 // Add spirit_animal column if not exists
@@ -165,6 +199,41 @@ const statements = {
   logX402Payment: db.prepare(`
     INSERT INTO x402_payments (wallet_address, endpoint, amount_usdc, tx_signature)
     VALUES (?, ?, ?, ?)
+  `),
+
+  // Referral codes
+  createReferralCode: db.prepare(`INSERT OR IGNORE INTO referral_codes (wallet, code) VALUES (?, ?)`),
+  getReferralCode: db.prepare(`SELECT code FROM referral_codes WHERE wallet = ?`),
+  getWalletByCode: db.prepare(`SELECT wallet FROM referral_codes WHERE code = ?`),
+
+  // Referrals
+  createReferral: db.prepare(`INSERT OR IGNORE INTO referrals (referrer_wallet, referred_wallet, referral_code) VALUES (?, ?, ?)`),
+  getReferrer: db.prepare(`SELECT referrer_wallet FROM referrals WHERE referred_wallet = ?`),
+  getReferralCount: db.prepare(`SELECT COUNT(*) as count FROM referrals WHERE referrer_wallet = ?`),
+
+  // Referral earnings
+  insertReferralEarning: db.prepare(`
+    INSERT INTO referral_earnings (referrer_wallet, referred_wallet, source, gross_amount, referral_amount, currency)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `),
+  getReferralEarnings: db.prepare(`
+    SELECT currency, SUM(referral_amount) as total
+    FROM referral_earnings WHERE referrer_wallet = ?
+    GROUP BY currency
+  `),
+  getUnpaidEarnings: db.prepare(`
+    SELECT currency, SUM(referral_amount) as total
+    FROM referral_earnings WHERE referrer_wallet = ? AND paid = 0
+    GROUP BY currency
+  `),
+  getRecentEarnings: db.prepare(`
+    SELECT source, referral_amount as amount, currency, created_at as date
+    FROM referral_earnings WHERE referrer_wallet = ?
+    ORDER BY created_at DESC LIMIT 20
+  `),
+  markEarningsPaid: db.prepare(`
+    UPDATE referral_earnings SET paid = 1, tx_signature = ?
+    WHERE referrer_wallet = ? AND paid = 0
   `),
 
   // Spirit animal
@@ -305,6 +374,87 @@ function logX402Payment(walletAddress, endpoint, amountUsdc, txSignature) {
   statements.logX402Payment.run(walletAddress || '', endpoint, amountUsdc, txSignature || '');
 }
 
+// === Referral functions ===
+
+function createReferralCode(wallet, code) {
+  if (!code) code = wallet.slice(0, 8);
+  try {
+    statements.createReferralCode.run(wallet, code);
+    return { success: true, code };
+  } catch (e) {
+    // Code already exists — try wallet prefix variants
+    for (let i = 0; i < 5; i++) {
+      const variant = wallet.slice(0, 6) + wallet.slice(-2 - i, -i || undefined);
+      try {
+        statements.createReferralCode.run(wallet, variant);
+        return { success: true, code: variant };
+      } catch {}
+    }
+    // Return existing code
+    const existing = statements.getReferralCode.get(wallet);
+    return { success: true, code: existing ? existing.code : wallet.slice(0, 8) };
+  }
+}
+
+function getReferralCode(wallet) {
+  const row = statements.getReferralCode.get(wallet);
+  return row ? row.code : null;
+}
+
+function recordReferral(referrerWallet, referredWallet, code) {
+  if (referrerWallet === referredWallet) return { success: false, error: 'Cannot refer yourself' };
+  try {
+    statements.createReferral.run(referrerWallet, referredWallet, code);
+    console.log(`[REFERRAL] ${referredWallet.slice(0, 8)}... referred by ${referrerWallet.slice(0, 8)}... (code: ${code})`);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: 'Already referred' };
+  }
+}
+
+function getReferrer(wallet) {
+  const row = statements.getReferrer.get(wallet);
+  return row ? row.referrer_wallet : null;
+}
+
+function recordReferralEarning(referrerWallet, referredWallet, source, grossAmount, referralAmount, currency) {
+  statements.insertReferralEarning.run(referrerWallet, referredWallet, source, grossAmount, referralAmount, currency);
+  console.log(`[REFERRAL] Earning: ${referrerWallet.slice(0, 8)}... +${referralAmount} ${currency} from ${source}`);
+}
+
+function getReferralEarnings(wallet) {
+  const rows = statements.getReferralEarnings.all(wallet);
+  const earnings = {};
+  for (const row of rows) earnings[row.currency] = row.total || 0;
+  return earnings;
+}
+
+function getReferralCount(wallet) {
+  const row = statements.getReferralCount.get(wallet);
+  return row ? row.count : 0;
+}
+
+function getUnpaidEarnings(wallet) {
+  const rows = statements.getUnpaidEarnings.all(wallet);
+  const earnings = {};
+  for (const row of rows) earnings[row.currency] = row.total || 0;
+  return earnings;
+}
+
+function getRecentEarnings(wallet) {
+  return statements.getRecentEarnings.all(wallet);
+}
+
+function markEarningsPaid(wallet, txSignature) {
+  const result = statements.markEarningsPaid.run(txSignature || '', wallet);
+  return { success: true, marked: result.changes };
+}
+
+function getWalletByReferralCode(code) {
+  const row = statements.getWalletByCode.get(code);
+  return row ? row.wallet : null;
+}
+
 // === Spirit animal functions ===
 
 function setSpiritAnimal(walletAddress, animal) {
@@ -385,6 +535,18 @@ module.exports = {
   getFreeMessagesRemaining,
   decrementFreeMessages,
   logX402Payment,
+  // Referrals
+  createReferralCode,
+  getReferralCode,
+  recordReferral,
+  getReferrer,
+  recordReferralEarning,
+  getReferralEarnings,
+  getReferralCount,
+  getUnpaidEarnings,
+  getRecentEarnings,
+  markEarningsPaid,
+  getWalletByReferralCode,
   // Spirit animal
   setSpiritAnimal,
   getSpiritAnimal,

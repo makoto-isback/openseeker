@@ -119,7 +119,8 @@ openseeker/
 │   │   ├── whale.js         # Whale tracking routes (POST /watch, GET /watched, DELETE /watch/:wallet, GET /activity/:wallet, GET /feed)
 │   │   ├── domains.js       # .os domain routes (check, price, register, my, lookup, leaderboard, stats)
 │   │   ├── memory.js        # Persistent memory routes (get, save, forget, daily, recap)
-│   │   └── spirit.js        # Spirit animal routes (set, get by wallet)
+│   │   ├── spirit.js        # Spirit animal routes (set, get by wallet)
+│   │   └── referral.js     # Referral routes (generate, apply, stats, claim)
 │   │   ├── x402Public.js   # Public x402 API for other agents (trending, price, research, whale, news, discovery)
 │   │   ├── defi.js          # GET /api/defi/yields — DeFiLlama Solana pools with categorization (free)
 │   │   └── tokens.js        # GET /api/tokens/trending + /api/tokens/research/:address — DexScreener (free)
@@ -134,7 +135,7 @@ openseeker/
 │       ├── aiRouter.js      # Multi-model routing: Groq 70b → Gemini 2.0 Flash → OpenAI fallback chain
 │       ├── coingecko.js     # CoinGecko API: getPrice, getPrices, getMarketData (60s cache, 5min on 429)
 │       ├── prompts.js       # Two-pass prompt builder (tool tag intent detection + result formatting)
-│       ├── skills.js        # Skill registry: 40 skills + tool tag parser (TOOL_TAG_MAP, parseToolTags, cleanToolTags)
+│       ├── skills.js        # Skill registry: 41 skills + tool tag parser (TOOL_TAG_MAP, parseToolTags, cleanToolTags)
 │       ├── jupiter.js       # Jupiter Quote + Swap Transaction APIs with mock fallback
 │       ├── solscan.js       # Mock whale transaction data
 │       ├── tokenResearch.js # Token safety analysis (CoinGecko + heuristics)
@@ -201,6 +202,10 @@ openseeker/
 - `GET /api/memory/recap/:wallet` — AI-generated weekly recap (free)
 - `GET /api/memory/prompt/:wallet` — formatted memory string for AI prompt (free)
 - `GET /api/memory/credits/:wallet` — credit balance info (free)
+- `POST /api/referral/generate` — `{ wallet, custom_code? }` → generate or get referral code (free)
+- `POST /api/referral/apply` — `{ wallet, code }` → apply referral code during onboarding (free)
+- `GET /api/referral/stats?wallet=` — referral dashboard data: code, count, earnings (free)
+- `POST /api/referral/claim` — `{ wallet }` → request payout of unpaid earnings (free, min 0.005 SOL or $0.50 USDC)
 - `POST /api/spirit-animal` — `{ wallet, animal }` → set spirit animal (free, requires .os domain)
 - `GET /api/spirit-animal/:wallet` — get spirit animal for a wallet (free)
 - `GET /api/x402/.well-known/x402` — x402 service discovery (free)
@@ -235,7 +240,7 @@ openseeker/
 - **Server AI**: Multi-model routing via `aiRouter.js`. Groq 70b (free, fast) → Gemini 2.0 Flash (free, 1500/day) → OpenAI GPT-4o-mini (paid backup). Groq 8b fallback removed — when 70b hits TPD limit, skips directly to Gemini because 8b can't follow tool tag instructions. AI complexity classification routes simple queries to Groq, complex to Gemini.
 - **Two-pass tool system**: Pass 1 detects intent via `[TAG:args]` tool tags in AI response (e.g. `[PRICE:SOL]`, `[SWAP:SOL,WIF,1]`). Skills execute. Pass 2 formats results in personality.
 - **Tool tag format**: `[TAG_NAME:arg1,arg2,...]` — compact positional args. Parsed by `parseToolTags()` in `skills.js` using `TOOL_TAG_MAP` (37 entries). Falls back to legacy `[SKILL:name:params]` format via `parseSkillTags()`. Special cases: `ORDER` tag uses first arg as type (limit_buy/limit_sell/stop_loss), `RECAP` picks daily/weekly handler.
-- **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain, my_memory, remember_this, forget_this, daily_recap, weekly_recap, price_history, wallet_pnl, tx_history, price_at_time.
+- **Available skills**: price_check, portfolio_track, swap_quote, whale_watch, token_research, price_alert, dca_setup, news_digest, limit_buy, limit_sell, stop_loss, view_orders, cancel_order, defi_yields, trending_tokens, liquid_stake, park_digest, park_consensus, park_post, new_tokens, view_alerts, cancel_alert, send_token, sell_token, rotate_token, go_stablecoin, whale_track, whale_activity, whale_stop, claim_domain, lookup_domain, my_memory, remember_this, forget_this, daily_recap, weekly_recap, price_history, wallet_pnl, tx_history, price_at_time, referral_stats.
 - **Park skills**: `park_digest` summarizes recent park messages (client sends park_context). `park_consensus` aggregates agent opinions on a token weighted by reputation. `park_post` posts to park (requires parkMode === 'active'). Park context injected in chat route like wallet_content.
 - **Reputation system**: `services/reputation.ts` — `getReputationTier(score)` (Newbie/Regular/Trusted/Elite), `calculateConsensus(messages)` weights sentiment by agent reputation + confidence. Schema ready for post-hackathon 24h verification.
 - **Agent Park settings**: `settingsStore.ts` has agentName, agentId, parkMode ('off'|'listen'|'active'), parkBudgetDaily ($0.05), parkSpentToday, parkTopics. Settings UI section with mode selector, budget, topic toggles.
@@ -245,6 +250,7 @@ openseeker/
 - **Skill cards**: `SkillCard.tsx` renders rich UI cards for each skill type (price, portfolio, swap, whale, research, alert, dca, orders, send, sell, new tokens, whale tracking, domain). `OrderCard.tsx` handles limit_buy/sell, stop_loss, view_orders, cancel_order. `SendConfirmCard.tsx` handles send_token (auto-executes when risk accepted). `SellConfirmCard.tsx` handles sell_token, rotate_token, go_stablecoin (auto-executes when risk accepted). `WhaleTrackCard.tsx` handles whale_track/activity/stop. `NewTokensCard.tsx` handles new_tokens. `DomainClaimCard.tsx` handles claim_domain/lookup_domain.
 - **Persistent Memory**: SQLite-based agent brain (`server/services/memory.js`). Auto-extracts facts from chat via AI (async, non-blocking). Categories: preference, portfolio, trading, personal, strategy, general. Max 100 memories per wallet. Daily event logging with AI-generated summaries. Memory injected into chat system prompt as "PERSISTENT BRAIN" section. 5 memory skills: my_memory, remember_this, forget_this, daily_recap, weekly_recap. Heartbeat logs portfolio events to daily log. Chat route reads X-Wallet header to identify wallet for memory operations.
 - **Allium blockchain data**: Enterprise-grade on-chain data via `server/services/allium.js`. Base URL `https://api.allium.so/api/v1/developer`, auth via `X-API-KEY` header. 4 skills: price_history (OHLC candles, 5m-1d granularity), wallet_pnl (realized + unrealized P&L per token), tx_history (enriched transactions with labels), price_at_time (historical price at a specific date). All ADDITIVE — graceful fallback if `ALLIUM_API_KEY` not set or API fails. PnL auto-injected into wallet context in chat route. Attribution: "Powered by Allium" in responses. Public x402 API endpoint: `/api/x402/history/:symbol` ($0.003 USDC).
+- **Referral System**: 10% revenue share. 3 SQLite tables: `referrals` (referrer→referred mapping), `referral_earnings` (per-transaction earnings), `referral_codes` (wallet→code). Code auto-generated from first 8 chars of wallet address. Applied during onboarding (between risk consent and domain upsell). Revenue tracked in: x402 middleware (USDC chat/API fees), domain registration route (SOL domain fees). 1 AI skill: `referral_stats` via `[REFERRAL]` tool tag. Client: `ReferralSection` in Settings, referral input step in onboarding. Min payout: 0.005 SOL or $0.50 USDC. Persisted in AsyncStorage `@openseeker/referral_code`. 4 server endpoints at `/api/referral/` (generate, apply, stats, claim).
 - **CoinGecko**: 60s in-memory cache (extends to 5min on 429 rate limit). Symbol→ID mapping in `coingecko.js`. Mock fallback on API failure.
 - **Jupiter**: Swap quotes + swap transactions via `api.jup.ag/swap/v1`. Falls back to mock rates/transactions when API unavailable.
 

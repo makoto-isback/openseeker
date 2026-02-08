@@ -96,6 +96,8 @@ export function SkillCard({ skill, success, data, error }: SkillCardProps) {
     case 'daily_recap':
     case 'weekly_recap':
       return <MemoryCard data={data} skill={skill} />;
+    case 'referral_stats':
+      return <ReferralCard data={data} />;
     default:
       return null;
   }
@@ -469,6 +471,39 @@ function ParkPostCard({ data }: { data: any }) {
       </View>
       <Text style={styles.metaText}>{data.message}</Text>
       {data.content && <Text style={styles.alertText}>"{data.content}"</Text>}
+    </View>
+  );
+}
+
+function ReferralCard({ data }: { data: any }) {
+  return (
+    <View style={[styles.card, { borderLeftColor: colors.green }]}>
+      <View style={styles.cardHeader}>
+        <Text style={styles.cardTitle}>Referral Program</Text>
+        <Text style={[styles.cardBadge, { color: colors.green }]}>REFERRAL</Text>
+      </View>
+      <Text style={[styles.metaText, { fontSize: fontSize.lg, fontWeight: '700', marginVertical: spacing.xs }]}>
+        Code: {data.code}
+      </Text>
+      <Text style={styles.metaText}>{data.link}</Text>
+      <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm }}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.metaText}>Referrals</Text>
+          <Text style={[styles.alertText, { fontWeight: '700' }]}>{data.referralCount || 0}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.metaText}>Total Earned</Text>
+          <Text style={[styles.alertText, { fontWeight: '700', color: colors.green }]}>
+            ${(data.totalEarnings?.USDC || 0).toFixed(4)}
+          </Text>
+        </View>
+      </View>
+      {data.unpaidEarnings && (data.unpaidEarnings.USDC > 0 || data.unpaidEarnings.SOL > 0) && (
+        <Text style={[styles.metaText, { marginTop: spacing.xs, color: colors.green }]}>
+          Unpaid: {data.unpaidEarnings.USDC > 0 ? `$${data.unpaidEarnings.USDC.toFixed(4)} USDC ` : ''}
+          {data.unpaidEarnings.SOL > 0 ? `${data.unpaidEarnings.SOL.toFixed(6)} SOL` : ''}
+        </Text>
+      )}
     </View>
   );
 }

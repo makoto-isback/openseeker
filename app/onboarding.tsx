@@ -28,7 +28,7 @@ import { colors, spacing, fontSize, borderRadius } from '../constants/theme';
 
 const monoFont = Platform.select({ ios: 'Courier', android: 'monospace', default: 'monospace' });
 
-type Screen = 'main' | 'create' | 'import-seed' | 'import-key' | 'email-login' | 'name-agent' | 'risk-consent' | 'domain-upsell';
+type Screen = 'main' | 'create' | 'import-seed' | 'import-key' | 'email-login' | 'name-agent' | 'risk-consent' | 'referral' | 'domain-upsell';
 
 export default function OnboardingScreen({ onComplete }: { onComplete?: () => void }) {
   const [screen, setScreen] = useState<Screen>('main');
@@ -44,6 +44,11 @@ export default function OnboardingScreen({ onComplete }: { onComplete?: () => vo
   // Agent naming state
   const [agentNameInput, setAgentNameInput] = useState('DegenCat');
   const [nameError, setNameError] = useState('');
+
+  // Referral state
+  const [referralInput, setReferralInput] = useState('');
+  const [referralStatus, setReferralStatus] = useState<'idle' | 'applying' | 'applied' | 'error'>('idle');
+  const [referralError, setReferralError] = useState('');
 
   // Email login state
   const [emailInput, setEmailInput] = useState('');
@@ -433,9 +438,95 @@ export default function OnboardingScreen({ onComplete }: { onComplete?: () => vo
   if (screen === 'risk-consent') {
     return (
       <RiskConsentScreen
-        onAccept={() => setScreen('domain-upsell')}
-        onSkip={() => setScreen('domain-upsell')}
+        onAccept={() => setScreen('referral')}
+        onSkip={() => setScreen('referral')}
       />
+    );
+  }
+
+  // Referral code screen
+  if (screen === 'referral') {
+    const handleApplyReferral = async () => {
+      const code = referralInput.trim();
+      if (!code) {
+        setScreen('domain-upsell');
+        return;
+      }
+      setReferralStatus('applying');
+      setReferralError('');
+      try {
+        const walletAddress = useWalletStore.getState().address;
+        const serverUrl = useSettingsStore.getState().serverUrl;
+        const res = await fetch(`${serverUrl}/api/referral/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ wallet: walletAddress, code }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          setReferralStatus('applied');
+          useSettingsStore.getState().setReferralCode(code);
+          setTimeout(() => setScreen('domain-upsell'), 1500);
+        } else {
+          setReferralStatus('error');
+          setReferralError(data.error || 'Invalid referral code');
+        }
+      } catch {
+        setReferralStatus('error');
+        setReferralError('Could not verify code. Try again later.');
+      }
+    };
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.content}>
+          <Text style={{ fontSize: 36, textAlign: 'center', marginBottom: spacing.md }}>
+            {'[*]'}
+          </Text>
+          <Text style={styles.title}>Got a Referral Code?</Text>
+          <Text style={styles.subtitle}>
+            Enter a referral code from a friend to connect your accounts. They'll earn 10% of platform fees you generate.
+          </Text>
+          <TextInput
+            style={[styles.importInput, { minHeight: 50, textAlign: 'center', fontSize: fontSize.xl }]}
+            value={referralInput}
+            onChangeText={(t) => {
+              setReferralInput(t);
+              setReferralStatus('idle');
+              setReferralError('');
+            }}
+            placeholder="e.g. degen42"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={20}
+          />
+          {referralStatus === 'applied' && (
+            <Text style={{ color: colors.green, textAlign: 'center', marginBottom: spacing.md }}>
+              Referral applied!
+            </Text>
+          )}
+          {referralStatus === 'error' && (
+            <Text style={styles.warning}>{referralError}</Text>
+          )}
+          <TouchableOpacity
+            style={[styles.primaryButton, referralStatus === 'applying' && styles.buttonDisabled]}
+            onPress={handleApplyReferral}
+            disabled={referralStatus === 'applying'}
+          >
+            {referralStatus === 'applying' ? (
+              <ActivityIndicator color={colors.text} />
+            ) : (
+              <Text style={styles.primaryButtonText}>
+                {referralInput.trim() ? 'Apply Code' : 'Continue'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.backButton} onPress={() => setScreen('domain-upsell')}>
+            <Text style={styles.backButtonText}>Skip</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   }
 
